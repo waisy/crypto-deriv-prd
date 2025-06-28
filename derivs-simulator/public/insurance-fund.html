@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insurance Fund History - Derivatives Exchange</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .if-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .if-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .if-header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .nav-link {
+            display: inline-block;
+            margin: 10px;
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+
+        .nav-link:hover {
+            background: #2980b9;
+        }
+
+        .if-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .summary-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-left: 4px solid #3498db;
+        }
+
+        .summary-card.positive {
+            border-left-color: #27ae60;
+        }
+
+        .summary-card.negative {
+            border-left-color: #e74c3c;
+        }
+
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .summary-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .summary-card .change {
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .change.positive {
+            color: #27ae60;
+        }
+
+        .change.negative {
+            color: #e74c3c;
+        }
+
+        .if-sections {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .if-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .section-header {
+            background: #34495e;
+            color: white;
+            padding: 15px 20px;
+            font-weight: bold;
+        }
+
+        .section-content {
+            padding: 20px;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .history-table th,
+        .history-table td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        .history-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .history-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .amount.positive {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .amount.negative {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .method-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .method-badge.market_order {
+            background: #3498db;
+            color: white;
+        }
+
+        .method-badge.mark_price {
+            background: #f39c12;
+            color: white;
+        }
+
+        .side-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .side-badge.long {
+            background: #27ae60;
+            color: white;
+        }
+
+        .side-badge.short {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .liquidation-details {
+            font-size: 11px;
+            color: #7f8c8d;
+            margin-top: 4px;
+        }
+
+        .if-chart {
+            height: 300px;
+            border: 1px solid #ecf0f1;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #7f8c8d;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .if-sections {
+                grid-template-columns: 1fr;
+            }
+            
+            .if-summary {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .refresh-btn {
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .refresh-btn:hover {
+            background: #229954;
+        }
+
+        .no-data {
+            text-align: center;
+            color: #7f8c8d;
+            padding: 40px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="if-container">
+        <div class="if-header">
+            <h1>Insurance Fund History</h1>
+            <a href="/" class="nav-link">← Back to Trading</a>
+            <button class="refresh-btn" onclick="loadInsuranceFundData()">🔄 Refresh Data</button>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="if-summary" id="ifSummary">
+            <!-- Summary cards will be populated here -->
+        </div>
+
+        <!-- Balance Chart Placeholder -->
+        <div class="if-section">
+            <div class="section-header">Insurance Fund Balance Over Time</div>
+            <div class="section-content">
+                <div class="if-chart" id="balanceChart">
+                    📈 Balance chart will be implemented here
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Sections -->
+        <div class="if-sections">
+            <!-- Balance History -->
+            <div class="if-section">
+                <div class="section-header">Balance History</div>
+                <div class="section-content">
+                    <table class="history-table" id="balanceHistory">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Type</th>
+                                <th>Amount</th>
+                                <th>Balance</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="balanceHistoryBody">
+                            <!-- Balance history will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Liquidation History -->
+            <div class="if-section">
+                <div class="section-header">Liquidation History</div>
+                <div class="section-content">
+                    <table class="history-table" id="liquidationHistory">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>User</th>
+                                <th>Side</th>
+                                <th>Size</th>
+                                <th>Method</th>
+                                <th>Fee</th>
+                                <th>Impact</th>
+                            </tr>
+                        </thead>
+                        <tbody id="liquidationHistoryBody">
+                            <!-- Liquidation history will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let insuranceFundData = null;
+
+        // WebSocket connection
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:3000');
+            
+            ws.onopen = function() {
+                console.log('Connected to WebSocket');
+                loadInsuranceFundData();
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.type === 'update' || data.type === 'init') {
+                    // Auto-refresh if there were liquidations
+                    if (data.liquidations && data.liquidations.length > 0) {
+                        setTimeout(loadInsuranceFundData, 1000);
+                    }
+                }
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket connection closed');
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+
+        async function loadInsuranceFundData() {
+            try {
+                const response = await fetch('/api/insurance-fund');
+                insuranceFundData = await response.json();
+                updateDisplay();
+            } catch (error) {
+                console.error('Error loading insurance fund data:', error);
+            }
+        }
+
+        function updateDisplay() {
+            if (!insuranceFundData) return;
+
+            updateSummaryCards();
+            updateBalanceHistory();
+            updateLiquidationHistory();
+        }
+
+        function updateSummaryCards() {
+            const summary = insuranceFundData.summary;
+            const summaryHtml = `
+                <div class="summary-card ${summary.totalGrowth >= 0 ? 'positive' : 'negative'}">
+                    <h3>Current Balance</h3>
+                    <div class="value">$${summary.currentBalance.toLocaleString()}</div>
+                    <div class="change ${summary.totalGrowth >= 0 ? 'positive' : 'negative'}">
+                        ${summary.totalGrowth >= 0 ? '+' : ''}$${summary.totalGrowth.toLocaleString()} 
+                        (${summary.growthPercentage >= 0 ? '+' : ''}${summary.growthPercentage.toFixed(2)}%)
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <h3>Total Liquidations</h3>
+                    <div class="value">${summary.totalLiquidations}</div>
+                    <div class="change">Since inception</div>
+                </div>
+                <div class="summary-card positive">
+                    <h3>Total Fees Collected</h3>
+                    <div class="value">$${summary.totalFeesCollected.toFixed(2)}</div>
+                    <div class="change">Avg: $${summary.averageFeePerLiquidation.toFixed(2)}/liquidation</div>
+                </div>
+                <div class="summary-card ${summary.totalPayouts > 0 ? 'negative' : ''}">
+                    <h3>Total Payouts</h3>
+                    <div class="value">$${summary.totalPayouts.toFixed(2)}</div>
+                    <div class="change">Bankruptcy losses</div>
+                </div>
+                <div class="summary-card ${summary.netGain >= 0 ? 'positive' : 'negative'}">
+                    <h3>Net Gain</h3>
+                    <div class="value">$${summary.netGain.toFixed(2)}</div>
+                    <div class="change">${summary.profitability.toFixed(1)}% profitability</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Method Breakdown</h3>
+                    <div class="value">${Object.keys(summary.methodBreakdown).length} methods</div>
+                    <div class="change">
+                        ${Object.entries(summary.methodBreakdown).map(([method, count]) => 
+                            `${method}: ${count}`
+                        ).join(', ') || 'No data'}
+                    </div>
+                </div>
+            `;
+            document.getElementById('ifSummary').innerHTML = summaryHtml;
+        }
+
+        function updateBalanceHistory() {
+            const tbody = document.getElementById('balanceHistoryBody');
+            if (!insuranceFundData.history || insuranceFundData.history.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="no-data">No balance history available</td></tr>';
+                return;
+            }
+
+            const historyHtml = insuranceFundData.history.map(entry => `
+                <tr>
+                    <td>${new Date(entry.timestamp).toLocaleString()}</td>
+                    <td>${entry.type.replace('_', ' ')}</td>
+                    <td class="amount ${entry.amount >= 0 ? 'positive' : 'negative'}">
+                        ${entry.amount >= 0 ? '+' : ''}$${entry.amount.toFixed(2)}
+                    </td>
+                    <td>$${entry.balance.toLocaleString()}</td>
+                    <td title="${entry.description}">${entry.description.substring(0, 40)}${entry.description.length > 40 ? '...' : ''}</td>
+                </tr>
+            `).join('');
+            
+            tbody.innerHTML = historyHtml;
+        }
+
+        function updateLiquidationHistory() {
+            const tbody = document.getElementById('liquidationHistoryBody');
+            if (!insuranceFundData.liquidations || insuranceFundData.liquidations.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="no-data">No liquidations yet</td></tr>';
+                return;
+            }
+
+            const liquidationHtml = insuranceFundData.liquidations.map(liq => `
+                <tr>
+                    <td>${new Date(liq.timestamp).toLocaleString()}</td>
+                    <td><strong>${liq.userId}</strong></td>
+                    <td><span class="side-badge ${liq.side}">${liq.side}</span></td>
+                    <td>${liq.size} BTC</td>
+                    <td><span class="method-badge ${liq.method}">${liq.method.replace('_', ' ')}</span></td>
+                    <td class="amount positive">+$${liq.liquidationFee.toFixed(2)}</td>
+                    <td class="amount ${liq.netInsuranceFundImpact >= 0 ? 'positive' : 'negative'}">
+                        ${liq.netInsuranceFundImpact >= 0 ? '+' : ''}$${liq.netInsuranceFundImpact.toFixed(2)}
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="7" class="liquidation-details">
+                        Entry: $${liq.entryPrice.toFixed(2)} → Execution: $${liq.executionPrice.toFixed(2)} 
+                        | Bankruptcy: $${liq.bankruptcyPrice.toFixed(2)} 
+                        | Remaining: $${liq.remainingBalance.toFixed(2)}
+                        ${liq.slippage > 0 ? ` | Slippage: ${(liq.slippage * 100).toFixed(2)}%` : ''}
+                    </td>
+                </tr>
+            `).join('');
+            
+            tbody.innerHTML = liquidationHtml;
+        }
+
+        function formatTime(timestamp) {
+            return new Date(timestamp).toLocaleTimeString();
+        }
+
+        // Initialize
+        connectWebSocket();
+    </script>
+</body>
+</html> 

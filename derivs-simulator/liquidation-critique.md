@@ -172,7 +172,7 @@ checkLiquidations() {
 1. ✅ **Add partial liquidation support**
 2. ✅ **Implement liquidation queue system**
 3. ✅ **Add basic risk limits**
-4. ✅ **Performance optimization**
+4. **Performance optimization** - Removed for now, focus on functionality first
 
 ### Long Term (Enhancement)
 1. **Full liquidation auction system**

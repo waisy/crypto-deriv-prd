@@ -7,6 +7,16 @@ class LiquidationEngine {
     this.marginCalculator = marginCalculator;
     this.liquidationQueue = [];
     this.isProcessingQueue = false;
+    
+    // Insurance fund history tracking
+    this.insuranceFundHistory = [{
+      timestamp: Date.now(),
+      type: 'initialization',
+      amount: 0,
+      balance: this.insuranceFund,
+      description: 'Initial insurance fund balance'
+    }];
+    this.liquidationHistory = [];
   }
 
   // Set references to matching engine and order book (for dependency injection)
@@ -68,6 +78,7 @@ class LiquidationEngine {
       side: position.side,
       size: position.size,
       entryPrice: position.avgEntryPrice,
+      initialMargin: position.initialMargin,
       bankruptcyPrice,
       preLiquidationLoss,
       liquidationFee,
@@ -132,14 +143,19 @@ class LiquidationEngine {
     // Execute through matching engine
     const matches = this.matchingEngine.match(liquidationOrder);
     
-    liquidationResult.method = 'market_order';
     liquidationResult.fills = liquidationOrder.fills || [];
     liquidationResult.totalExecuted = liquidationOrder.filledSize || 0;
     
-    if (liquidationResult.totalExecuted > 0) {
-      liquidationResult.executionPrice = liquidationOrder.avgFillPrice || liquidationResult.executionPrice;
-      liquidationResult.slippage = Math.abs(liquidationResult.executionPrice - liquidationResult.executionPrice) / liquidationResult.executionPrice;
+    // If no market execution occurred (no opposing orders), fall back to insurance fund execution
+    if (liquidationResult.totalExecuted === 0) {
+      console.log(`No market liquidity for liquidation - falling back to insurance fund execution at mark price`);
+      return this.executeFallbackLiquidation(position, liquidationResult.executionPrice, liquidationResult);
     }
+    
+    // Market execution successful
+    liquidationResult.method = 'market_order';
+    liquidationResult.executionPrice = liquidationOrder.avgFillPrice || liquidationResult.executionPrice;
+    liquidationResult.slippage = Math.abs(liquidationResult.executionPrice - liquidationResult.executionPrice) / liquidationResult.executionPrice;
 
     // Calculate remaining balance based on actual execution
     const executedValue = liquidationResult.totalExecuted * liquidationResult.executionPrice;
@@ -180,12 +196,25 @@ class LiquidationEngine {
     return liquidationResult;
   }
 
-  // NEW: Fixed insurance fund calculation
+  // NEW: Fixed insurance fund calculation with history tracking
   updateInsuranceFund(liquidationResult) {
-    const { remainingBalance, liquidationFee, totalExecuted, executionPrice, side, entryPrice } = liquidationResult;
+    const { remainingBalance, liquidationFee, totalExecuted, executionPrice, side, entryPrice, initialMargin, userId } = liquidationResult;
+    
+    console.log(`Updating insurance fund - Liquidation fee: $${liquidationFee.toFixed(2)}, totalExecuted: ${totalExecuted}, remainingBalance: $${remainingBalance.toFixed(2)}`);
     
     // Insurance fund gains liquidation fees
+    const oldBalance = this.insuranceFund;
     this.insuranceFund += liquidationFee;
+    
+    // Record liquidation fee collection
+    this.recordInsuranceFundChange({
+      type: 'liquidation_fee',
+      amount: liquidationFee,
+      balance: this.insuranceFund,
+      description: `Liquidation fee from ${userId} (${side} ${totalExecuted} BTC @ $${executionPrice})`
+    });
+    
+    console.log(`Insurance fund gains fee: $${liquidationFee.toFixed(2)}, new balance: $${this.insuranceFund.toFixed(2)}`);
     
     // Insurance fund only pays if user balance goes negative
     if (remainingBalance === 0) {
@@ -196,14 +225,65 @@ class LiquidationEngine {
         actualLoss = Math.max(0, (executionPrice - entryPrice) * totalExecuted);
       }
       
+      console.log(`User balance is zero - actualLoss: $${actualLoss.toFixed(2)}, initialMargin: $${(initialMargin || 0).toFixed(2)}`);
+      
       // Only pay out if loss exceeds initial margin (bankruptcy situation)
-      const position = { initialMargin: liquidationResult.initialMargin || 0 };
-      if (actualLoss > position.initialMargin) {
-        const shortfall = actualLoss - position.initialMargin;
+      if (actualLoss > (initialMargin || 0)) {
+        const shortfall = actualLoss - (initialMargin || 0);
         this.insuranceFund -= shortfall;
         liquidationResult.insuranceFundLoss = shortfall;
+        
+        // Record insurance fund payout
+        this.recordInsuranceFundChange({
+          type: 'bankruptcy_payout',
+          amount: -shortfall,
+          balance: this.insuranceFund,
+          description: `Bankruptcy payout for ${userId} (shortfall: $${shortfall.toFixed(2)})`
+        });
+        
+        console.log(`Insurance fund pays shortfall: $${shortfall.toFixed(2)}, new balance: $${this.insuranceFund.toFixed(2)}`);
       }
     }
+    
+    // Record complete liquidation event
+    this.recordLiquidationEvent(liquidationResult);
+  }
+
+  // Record insurance fund balance changes
+  recordInsuranceFundChange(change) {
+    this.insuranceFundHistory.push({
+      timestamp: Date.now(),
+      ...change
+    });
+  }
+
+  // Record detailed liquidation events
+  recordLiquidationEvent(liquidationResult) {
+    const liquidationRecord = {
+      id: `liq_${liquidationResult.timestamp}_${liquidationResult.userId}`,
+      timestamp: liquidationResult.timestamp,
+      userId: liquidationResult.userId,
+      side: liquidationResult.side,
+      size: liquidationResult.size,
+      entryPrice: liquidationResult.entryPrice,
+      executionPrice: liquidationResult.executionPrice,
+      liquidationPrice: this.calculateLiquidationPrice({ 
+        avgEntryPrice: liquidationResult.entryPrice, 
+        side: liquidationResult.side,
+        leverage: liquidationResult.initialMargin ? (liquidationResult.size * liquidationResult.entryPrice) / liquidationResult.initialMargin : 1
+      }),
+      bankruptcyPrice: liquidationResult.bankruptcyPrice,
+      method: liquidationResult.method,
+      liquidationFee: liquidationResult.liquidationFee,
+      remainingBalance: liquidationResult.remainingBalance,
+      insuranceFundContribution: liquidationResult.liquidationFee,
+      insuranceFundLoss: liquidationResult.insuranceFundLoss || 0,
+      netInsuranceFundImpact: liquidationResult.liquidationFee - (liquidationResult.insuranceFundLoss || 0),
+      fills: liquidationResult.fills || [],
+      slippage: liquidationResult.slippage || 0
+    };
+    
+    this.liquidationHistory.push(liquidationRecord);
   }
 
   calculateBankruptcyPrice(position) {
@@ -336,6 +416,49 @@ class LiquidationEngine {
       urgent: this.liquidationQueue.filter(item => item.priority === 'urgent').length,
       normal: this.liquidationQueue.filter(item => item.priority === 'normal').length,
       partial: this.liquidationQueue.filter(item => item.priority === 'partial').length
+    };
+  }
+
+  // Get insurance fund history
+  getInsuranceFundHistory() {
+    return {
+      currentBalance: this.insuranceFund,
+      history: this.insuranceFundHistory.slice().reverse(), // Most recent first
+      liquidations: this.liquidationHistory.slice().reverse(), // Most recent first
+      summary: this.getInsuranceFundSummary()
+    };
+  }
+
+  // Get insurance fund performance summary
+  getInsuranceFundSummary() {
+    const totalLiquidations = this.liquidationHistory.length;
+    const totalFeesCollected = this.liquidationHistory.reduce((sum, liq) => sum + liq.liquidationFee, 0);
+    const totalPayouts = this.liquidationHistory.reduce((sum, liq) => sum + liq.insuranceFundLoss, 0);
+    const netGain = totalFeesCollected - totalPayouts;
+    
+    const methodBreakdown = this.liquidationHistory.reduce((acc, liq) => {
+      acc[liq.method] = (acc[liq.method] || 0) + 1;
+      return acc;
+    }, {});
+
+    const sideBreakdown = this.liquidationHistory.reduce((acc, liq) => {
+      acc[liq.side] = (acc[liq.side] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      totalLiquidations,
+      totalFeesCollected,
+      totalPayouts,
+      netGain,
+      profitability: totalFeesCollected > 0 ? (netGain / totalFeesCollected * 100) : 0,
+      averageFeePerLiquidation: totalLiquidations > 0 ? totalFeesCollected / totalLiquidations : 0,
+      methodBreakdown,
+      sideBreakdown,
+      initialBalance: 1000000,
+      currentBalance: this.insuranceFund,
+      totalGrowth: this.insuranceFund - 1000000,
+      growthPercentage: ((this.insuranceFund - 1000000) / 1000000) * 100
     };
   }
 }

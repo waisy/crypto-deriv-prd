@@ -60,6 +60,15 @@ app.get('/api/state', (req, res) => {
   res.json(exchange.getState());
 });
 
+app.get('/api/insurance-fund', (req, res) => {
+  try {
+    const insuranceFundData = exchange.liquidationEngine.getInsuranceFundHistory();
+    res.json(insuranceFundData);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/order', async (req, res) => {
   try {
     const result = await exchange.handleMessage({
