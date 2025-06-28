@@ -19,6 +19,21 @@ class LiquidationEngine {
     this.liquidationHistory = [];
   }
 
+  manualAdjustment(amount, description) {
+    const type = amount >= 0 ? 'deposit' : 'withdrawal';
+    this.insuranceFund += amount;
+
+    this.recordInsuranceFundChange({
+      type: `manual_${type}`,
+      amount: amount,
+      balance: this.insuranceFund,
+      description: description || 'Manual fund adjustment'
+    });
+    
+    console.log(`Manual insurance fund adjustment: ${type} of $${Math.abs(amount)}. New balance: $${this.insuranceFund}`);
+    return { success: true, newBalance: this.insuranceFund };
+  }
+
   // Set references to matching engine and order book (for dependency injection)
   setReferences(matchingEngine, orderBook, marginCalculator) {
     this.matchingEngine = matchingEngine;

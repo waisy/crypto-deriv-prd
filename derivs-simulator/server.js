@@ -69,6 +69,31 @@ app.get('/api/insurance-fund', (req, res) => {
   }
 });
 
+app.post('/api/insurance-fund/adjust', (req, res) => {
+  try {
+    const { amount, description } = req.body;
+    if (typeof amount !== 'number') {
+      return res.status(400).json({ error: 'Amount must be a number.' });
+    }
+    const result = exchange.liquidationEngine.manualAdjustment(amount, description);
+    
+    // Broadcast the update to all clients
+    const broadcastData = {
+      type: 'update',
+      state: exchange.getState() 
+    };
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(broadcastData));
+      }
+    });
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/order', async (req, res) => {
   try {
     const result = await exchange.handleMessage({
