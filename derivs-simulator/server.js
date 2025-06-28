@@ -62,8 +62,9 @@ app.get('/api/state', (req, res) => {
 
 app.get('/api/insurance-fund', (req, res) => {
   try {
-    const insuranceFundData = exchange.liquidationEngine.getInsuranceFundHistory();
-    res.json(insuranceFundData);
+    const history = exchange.liquidationEngine.getInsuranceFundHistory();
+    const summary = exchange.liquidationEngine.getInsuranceFundSummary();
+    res.json({ ...history, summary });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

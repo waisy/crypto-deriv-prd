@@ -1,3 +1,4 @@
+const { Decimal } = require('decimal.js');
 const { OrderBook } = require('./orderbook');
 const { Position } = require('./position');
 const { User } = require('./user');
@@ -19,9 +20,9 @@ class Exchange {
     this.users = new Map();
     this.positions = new Map();
     this.trades = [];
-    this.currentMarkPrice = 45000;
-    this.indexPrice = 45000;
-    this.fundingRate = 0.0001;
+    this.currentMarkPrice = new Decimal(45000);
+    this.indexPrice = new Decimal(45000);
+    this.fundingRate = new Decimal(0.0001);
     
     // Risk limits
     this.riskLimits = {
@@ -64,61 +65,52 @@ class Exchange {
   async placeOrder(orderData) {
     const { userId, side, size, price, orderType, leverage } = orderData;
     
-    // Validate user exists
     const user = this.users.get(userId);
     if (!user) {
       throw new Error(`User ${userId} not found`);
     }
 
-    // Risk limit validations
     this.validateRiskLimits(userId, side, size, price, leverage || user.leverage);
 
-    // Update user leverage if provided
     if (leverage) {
       user.leverage = leverage;
     }
 
-    // Calculate margin requirements
-    const marginReq = this.marginCalculator.calculateInitialMargin(size, price, user.leverage);
+    const decSize = new Decimal(size);
+    const decPrice = new Decimal(price || this.currentMarkPrice);
+    const marginReq = this.marginCalculator.calculateInitialMargin(decSize, decPrice, user.leverage);
     
-    if (user.availableBalance < marginReq) {
+    if (user.availableBalance.lessThan(marginReq)) {
       throw new Error('Insufficient margin');
     }
 
-    // Create order with comprehensive tracking
     const order = {
       id: Date.now().toString(),
       userId,
       side,
-      originalSize: size,
-      remainingSize: size,
-      filledSize: 0,
-      price,
-      avgFillPrice: 0,
+      originalSize: decSize,
+      remainingSize: decSize,
+      filledSize: new Decimal(0),
+      price: decPrice,
+      avgFillPrice: new Decimal(0),
       type: orderType,
       leverage: user.leverage,
       timestamp: Date.now(),
       lastUpdateTime: Date.now(),
       status: 'NEW',
-      timeInForce: 'GTC', // Good Till Cancelled
+      timeInForce: 'GTC',
       fills: [],
-      totalValue: 0,
-      commission: 0,
+      totalValue: new Decimal(0),
+      commission: new Decimal(0),
       marginReserved: marginReq
     };
 
-    // Try to match the order (matching engine will add to book if needed)
     const matches = this.matchingEngine.match(order);
     
-    console.log(`Order placed: ${order.side} ${order.originalSize} BTC at ${order.price} (${order.type})`);
-    console.log(`Matches found: ${matches.length}`);
-    
-    // Process matches
     matches.forEach(match => {
       this.processTrade(match);
     });
 
-    // Check for liquidations after trade (await to ensure completion)
     let liquidations = [];
     try {
       liquidations = await this.checkLiquidations();
@@ -156,7 +148,6 @@ class Exchange {
   processTrade(match) {
     const { buyOrder, sellOrder, price, size } = match;
     
-    // Create trade record
     const trade = {
       id: Date.now().toString(),
       buyUserId: buyOrder.userId,
@@ -168,82 +159,63 @@ class Exchange {
     
     this.trades.push(trade);
 
-    // Update positions
-    this.updatePosition(buyOrder.userId, 'long', size, price, buyOrder.leverage);
-    this.updatePosition(sellOrder.userId, 'short', size, price, sellOrder.leverage);
+    const decPrice = new Decimal(price);
+    const decSize = new Decimal(size);
 
-    // Update user balances
-    this.updateUserBalances(buyOrder, sellOrder, price, size);
+    this.updatePosition(buyOrder.userId, 'long', decSize, decPrice, buyOrder.leverage);
+    this.updatePosition(sellOrder.userId, 'short', decSize, decPrice, sellOrder.leverage);
+
+    this.updateUserBalances(buyOrder, sellOrder, decPrice, decSize);
   }
 
   updatePosition(userId, side, size, price, leverage) {
-    const positionKey = userId; // One-way mode: one position per user
+    const positionKey = userId;
     let position = this.positions.get(positionKey);
-    let realizedPnL = 0;
+    let realizedPnL = new Decimal(0);
     
     if (!position) {
-      // No existing position - create new one
       position = new Position(userId, side, size, price, leverage);
       this.positions.set(positionKey, position);
-      console.log(`Created new ${side} position for ${userId}: ${size} BTC @ $${price}`);
     } else {
-      // Existing position - handle netting
       if (position.side === side) {
-        // Same direction - add to position
         position.addSize(size, price);
-        console.log(`Added to ${side} position for ${userId}: +${size} BTC @ $${price} (total: ${position.size} BTC)`);
       } else {
-        // Opposite direction - net positions
-        if (size < position.size) {
-          // Reduce existing position
+        if (size.lessThan(position.size)) {
           realizedPnL = position.reduceSize(size, price);
-          console.log(`Reduced ${position.side} position for ${userId}: -${size} BTC @ $${price} (remaining: ${position.size} BTC, realized PnL: $${realizedPnL.toFixed(2)})`);
-        } else if (size === position.size) {
-          // Close position completely
+        } else if (size.equals(position.size)) {
           realizedPnL = position.closePosition(price);
           this.positions.delete(positionKey);
-          console.log(`Closed ${position.side} position for ${userId}: ${size} BTC @ $${price} (realized PnL: $${realizedPnL.toFixed(2)})`);
           
-          // Update user balance with realized PnL
           const user = this.users.get(userId);
-          user.availableBalance += realizedPnL;
-          user.usedMargin -= position.initialMargin;
-          return; // Position closed, no further updates needed
+          user.updateBalance(realizedPnL);
+          user.usedMargin = user.usedMargin.minus(position.initialMargin);
+          return;
         } else {
-          // Flip position direction
-          const excessSize = size - position.size;
+          const excessSize = size.minus(position.size);
           realizedPnL = position.closePosition(price);
           
-          // Create new position in opposite direction with excess size
           this.positions.delete(positionKey);
           position = new Position(userId, side, excessSize, price, leverage);
           this.positions.set(positionKey, position);
-          
-          console.log(`Flipped position for ${userId}: closed ${position.side} and opened ${side} ${excessSize} BTC @ $${price} (realized PnL: $${realizedPnL.toFixed(2)})`);
         }
         
-        // Update user balance with realized PnL
         const user = this.users.get(userId);
-        user.availableBalance += realizedPnL;
+        user.updateBalance(realizedPnL);
         
-        // Adjust used margin for partial/full closures
-        if (size >= position.size) {
-          user.usedMargin -= position.initialMargin;
+        if (size.greaterThanOrEqualTo(position.size)) {
+          user.usedMargin = user.usedMargin.minus(position.initialMargin);
         }
       }
     }
 
-    // Calculate PnL for remaining/new position
     if (this.positions.has(positionKey)) {
       position = this.positions.get(positionKey);
       position.updatePnL(this.currentMarkPrice);
       
-      // Calculate margin requirements
       const marginReqs = this.marginCalculator.calculateMarginRequirements(position, this.currentMarkPrice);
       position.initialMargin = marginReqs.initial;
       position.maintenanceMargin = marginReqs.maintenance;
       
-      // Calculate liquidation price
       position.liquidationPrice = this.marginCalculator.calculateLiquidationPrice(position);
     }
   }
@@ -251,16 +223,15 @@ class Exchange {
   updateUserBalances(buyOrder, sellOrder, price, size) {
     const buyUser = this.users.get(buyOrder.userId);
     const sellUser = this.users.get(sellOrder.userId);
-    
-    // Deduct margin from available balance
+
     const buyMargin = this.marginCalculator.calculateInitialMargin(size, price, buyOrder.leverage);
     const sellMargin = this.marginCalculator.calculateInitialMargin(size, price, sellOrder.leverage);
     
-    buyUser.availableBalance -= buyMargin;
-    sellUser.availableBalance -= sellMargin;
+    buyUser.availableBalance = buyUser.availableBalance.minus(buyMargin);
+    sellUser.availableBalance = sellUser.availableBalance.minus(sellMargin);
     
-    buyUser.usedMargin += buyMargin;
-    sellUser.usedMargin += sellMargin;
+    buyUser.usedMargin = buyUser.usedMargin.plus(buyMargin);
+    sellUser.usedMargin = sellUser.usedMargin.plus(sellMargin);
   }
 
   updateLeverage(data) {
@@ -290,23 +261,19 @@ class Exchange {
   }
 
   async updateMarkPrice(newPrice) {
-    this.currentMarkPrice = newPrice;
-    this.indexPrice = newPrice; // Simplified - in real system these would be different
+    this.currentMarkPrice = new Decimal(newPrice);
+    this.indexPrice = new Decimal(newPrice);
     
-    // Update all position PnLs
     this.positions.forEach(position => {
-      position.updatePnL(newPrice);
+      position.updatePnL(this.currentMarkPrice);
     });
     
-    // Monitor margin calls
-    const marginCallUpdates = this.marginMonitor.monitorPositions(this.positions, this.users, newPrice);
-    
-    // Check for liquidations (await to ensure completion before returning state)
+    const marginCallUpdates = this.marginMonitor.monitorPositions(this.positions, this.users, this.currentMarkPrice);
     const liquidations = await this.checkLiquidations();
-    
+
     return {
       success: true,
-      markPrice: newPrice,
+      markPrice: this.currentMarkPrice,
       marginCalls: marginCallUpdates,
       liquidations: liquidations.length > 0 ? liquidations : undefined,
       state: this.getState()
@@ -315,159 +282,100 @@ class Exchange {
 
   async checkLiquidations() {
     const liquidations = [];
-    
-    // Create array from positions to avoid modification during iteration
-    const positionsArray = Array.from(this.positions.values());
-    
-    console.log(`Checking ${positionsArray.length} positions for liquidation`);
-    
-    for (const position of positionsArray) {
+    for (const [key, position] of this.positions.entries()) {
       if (this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice)) {
-        try {
-          console.log(`Liquidating position for ${position.userId}: ${position.side} ${position.size} BTC`);
-          
-          const liquidation = await this.liquidationEngine.liquidate(position, this.currentMarkPrice);
-          liquidations.push(liquidation);
-          
-          // Remove liquidated position
-          const positionKey = position.userId; // One-way mode: userId only
-          this.positions.delete(positionKey);
-          
-          // Update user balance
-          const user = this.users.get(position.userId);
-          if (user) {
-            user.availableBalance += liquidation.remainingBalance;
-            user.usedMargin -= position.initialMargin;
-          }
-          
-          // Clear margin call for liquidated user
-          this.marginMonitor.clearMarginCall(position.userId);
-          
-          // Check if ADL is needed due to insurance fund impact
-          if (liquidation.insuranceFundLoss > 0 && this.liquidationEngine.isSystemAtRisk()) {
-            console.warn(`Insurance fund impact: $${liquidation.insuranceFundLoss}. ADL may be triggered.`);
-            // Future: Auto-trigger ADL here
-          }
-          
-        } catch (error) {
-          console.error(`Liquidation failed for ${position.userId}:`, error);
-          // Add to liquidation queue for retry
-          this.liquidationEngine.addToLiquidationQueue(position, 'urgent');
+        const liquidation = await this.liquidationEngine.liquidate(position, this.currentMarkPrice);
+        liquidations.push(liquidation);
+
+        this.positions.delete(key);
+        const user = this.users.get(position.userId);
+        if (user) {
+          user.updateBalance(liquidation.remainingBalance);
+          user.usedMargin = user.usedMargin.minus(position.initialMargin);
+        }
+
+        if (liquidation.insuranceFundLoss.greaterThan(0) && this.liquidationEngine.isSystemAtRisk()) {
+          // ADL logic placeholder
         }
       }
     }
-    
     return liquidations;
   }
 
   async forceLiquidation(userId) {
-    const liquidations = [];
-    
-    // Create array from positions to avoid modification during iteration
-    const positionsArray = Array.from(this.positions.values());
-    
-    for (const position of positionsArray) {
-      if (position.userId === userId) {
-        try {
-          console.log(`Force liquidating position for ${userId}: ${position.side} ${position.size} BTC`);
-          
-          const liquidation = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, true); // Force mode
-          liquidations.push(liquidation);
-          
-          const positionKey = position.userId; // One-way mode: userId only
-          this.positions.delete(positionKey);
-          
-          const user = this.users.get(position.userId);
-          if (user) {
-            user.availableBalance += liquidation.remainingBalance;
-            user.usedMargin -= position.initialMargin;
-          }
-          
-          // Clear margin call for liquidated user
-          this.marginMonitor.clearMarginCall(userId);
-          
-        } catch (error) {
-          console.error(`Force liquidation failed for ${userId}:`, error);
-          throw error;
-        }
-      }
+    const position = this.positions.get(userId);
+    if (!position) {
+      throw new Error(`No position found for user ${userId} to force liquidate.`);
     }
-    
-    if (liquidations.length === 0) {
-      throw new Error(`No position found for user ${userId}`);
+
+    const liquidation = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, true);
+    this.positions.delete(userId);
+
+    const user = this.users.get(userId);
+    if (user) {
+      user.updateBalance(liquidation.remainingBalance);
+      user.usedMargin = user.usedMargin.minus(position.initialMargin);
     }
     
     return {
       success: true,
-      liquidations,
+      liquidation,
       state: this.getState()
     };
   }
 
-  // NEW: Risk limit validation
   validateRiskLimits(userId, side, size, price, leverage) {
-    // Validate order size
-    if (size < this.riskLimits.minOrderSize) {
+    const decSize = new Decimal(size);
+    const decPrice = new Decimal(price || this.currentMarkPrice);
+    const decLeverage = new Decimal(leverage);
+
+    if (decSize.lessThan(this.riskLimits.minOrderSize)) {
       throw new Error(`Order size too small. Minimum: ${this.riskLimits.minOrderSize} BTC`);
     }
     
-    if (size > this.riskLimits.maxPositionSize) {
+    if (decSize.greaterThan(this.riskLimits.maxPositionSize)) {
       throw new Error(`Order size too large. Maximum: ${this.riskLimits.maxPositionSize} BTC`);
     }
     
-    // Validate leverage
-    if (leverage > this.riskLimits.maxLeverage) {
+    if (decLeverage.greaterThan(this.riskLimits.maxLeverage)) {
       throw new Error(`Leverage too high. Maximum: ${this.riskLimits.maxLeverage}x`);
     }
     
-    // Validate position value
-    const positionValue = size * price;
-    if (positionValue > this.riskLimits.maxPositionValue) {
+    const positionValue = decSize.times(decPrice);
+    if (positionValue.greaterThan(this.riskLimits.maxPositionValue)) {
       throw new Error(`Position value too large. Maximum: $${this.riskLimits.maxPositionValue.toLocaleString()}`);
     }
-    
-    // Check if user already has max positions (one-way mode allows only 1)
+
     const existingPosition = this.positions.get(userId);
-    if (existingPosition && existingPosition.side !== side) {
-      // This is fine - it will net the position
-    }
-    
-    // Validate total exposure if adding to existing position
     if (existingPosition && existingPosition.side === side) {
-      const totalSize = existingPosition.size + size;
-      if (totalSize > this.riskLimits.maxPositionSize) {
-        throw new Error(`Total position size would exceed limit. Maximum: ${this.riskLimits.maxPositionSize} BTC`);
+      const totalSize = existingPosition.size.plus(decSize);
+      if (totalSize.greaterThan(this.riskLimits.maxPositionSize)) {
+        throw new Error(`Total position size would exceed limit.`);
       }
       
-      const totalValue = totalSize * price;
-      if (totalValue > this.riskLimits.maxPositionValue) {
-        throw new Error(`Total position value would exceed limit. Maximum: $${this.riskLimits.maxPositionValue.toLocaleString()}`);
+      const totalValue = totalSize.times(decPrice);
+      if (totalValue.greaterThan(this.riskLimits.maxPositionValue)) {
+        throw new Error(`Total position value would exceed limit.`);
       }
     }
   }
 
   getState() {
     return {
-      users: Array.from(this.users.values()),
-      positions: Array.from(this.positions.values()),
-      trades: this.trades.slice(-50), // Last 50 trades
-      orderBook: this.orderBook.getState(),
-      userOrders: {
-        bob: this.orderBook.getUserOrders('bob'),
-        eve: this.orderBook.getUserOrders('eve')
-      },
-      markPrice: this.currentMarkPrice,
-      indexPrice: this.indexPrice,
-      fundingRate: this.fundingRate,
-      adlQueue: this.adlEngine.getADLQueue(this.positions),
+      users: Array.from(this.users.values()).map(u => u.toJSON()),
+      positions: Array.from(this.positions.values()).map(p => p.toJSON()),
+      orderBook: this.orderBook.toJSON(),
+      trades: this.trades.slice(-20), // Last 20 trades
+      markPrice: this.currentMarkPrice.toNumber(),
+      indexPrice: this.indexPrice.toNumber(),
+      fundingRate: this.fundingRate.toNumber(),
       insuranceFund: {
         balance: this.liquidationEngine.getInsuranceFundBalance(),
         isAtRisk: this.liquidationEngine.isSystemAtRisk()
       },
-      marginCalls: this.marginMonitor.getActiveMarginCalls(),
-      marginSummary: this.marginMonitor.getMarginSummary(this.positions, this.users, this.currentMarkPrice),
-      riskLimits: this.riskLimits,
-      liquidationQueue: this.liquidationEngine.getQueueStatus()
+      userOrders: this.orderBook.getOrdersByUser(),
+      adlQueue: this.adlEngine.getQueue(),
+      marginCalls: this.marginMonitor.getActiveMarginCalls()
     };
   }
 }

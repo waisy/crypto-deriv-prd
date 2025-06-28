@@ -148,6 +148,13 @@ class ADLEngine {
       totalAffected: affectedUsers.length
     };
   }
+
+  getQueue() {
+    // This is a placeholder. The main logic is in getADLQueue,
+    // which requires the positions map to be passed in.
+    // getState in exchange.js needs a synchronous way to get a basic queue representation.
+    return [];
+  }
 }
 
 module.exports = { ADLEngine }; 

@@ -1,7 +1,9 @@
+const { Decimal } = require('decimal.js');
+
 class LiquidationEngine {
   constructor(matchingEngine = null, orderBook = null, marginCalculator = null) {
-    this.liquidationFeeRate = 0.005; // 0.5% liquidation fee
-    this.insuranceFund = 1000000; // $1M insurance fund
+    this.liquidationFeeRate = new Decimal(0.005); // 0.5% liquidation fee
+    this.insuranceFund = new Decimal(1000000); // $1M insurance fund
     this.matchingEngine = matchingEngine;
     this.orderBook = orderBook;
     this.marginCalculator = marginCalculator;
@@ -12,7 +14,7 @@ class LiquidationEngine {
     this.insuranceFundHistory = [{
       timestamp: Date.now(),
       type: 'initialization',
-      amount: 0,
+      amount: new Decimal(0),
       balance: this.insuranceFund,
       description: 'Initial insurance fund balance'
     }];
@@ -20,18 +22,19 @@ class LiquidationEngine {
   }
 
   manualAdjustment(amount, description) {
-    const type = amount >= 0 ? 'deposit' : 'withdrawal';
-    this.insuranceFund += amount;
+    const decAmount = new Decimal(amount);
+    const type = decAmount.isPositive() ? 'deposit' : 'withdrawal';
+    this.insuranceFund = this.insuranceFund.plus(decAmount);
 
     this.recordInsuranceFundChange({
       type: `manual_${type}`,
-      amount: amount,
+      amount: decAmount,
       balance: this.insuranceFund,
       description: description || 'Manual fund adjustment'
     });
     
-    console.log(`Manual insurance fund adjustment: ${type} of $${Math.abs(amount)}. New balance: $${this.insuranceFund}`);
-    return { success: true, newBalance: this.insuranceFund };
+    console.log(`Manual insurance fund adjustment: ${type} of $${decAmount.abs()}. New balance: $${this.insuranceFund}`);
+    return { success: true, newBalance: this.insuranceFund.toNumber() };
   }
 
   // Set references to matching engine and order book (for dependency injection)
@@ -76,15 +79,15 @@ class LiquidationEngine {
 
   // NEW: Real liquidation with market order execution
   async liquidate(position, currentPrice, forceMode = false) {
-    const liquidationFee = position.size * currentPrice * this.liquidationFeeRate;
+    const decCurrentPrice = new Decimal(currentPrice);
+    const liquidationFee = position.size.times(decCurrentPrice).times(this.liquidationFeeRate);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
     
-    // Calculate pre-liquidation losses (for insurance fund calculation)
     let preLiquidationLoss;
     if (position.side === 'long') {
-      preLiquidationLoss = Math.max(0, (position.avgEntryPrice - currentPrice) * position.size);
+      preLiquidationLoss = Decimal.max(0, position.avgEntryPrice.minus(decCurrentPrice).times(position.size));
     } else {
-      preLiquidationLoss = Math.max(0, (currentPrice - position.avgEntryPrice) * position.size);
+      preLiquidationLoss = Decimal.max(0, decCurrentPrice.minus(position.avgEntryPrice).times(position.size));
     }
 
     let liquidationResult = {
@@ -99,40 +102,34 @@ class LiquidationEngine {
       liquidationFee,
       timestamp: Date.now(),
       method: 'unknown',
-      executionPrice: currentPrice,
-      slippage: 0,
+      executionPrice: decCurrentPrice,
+      slippage: new Decimal(0),
       fills: [],
-      totalExecuted: 0,
-      remainingBalance: 0,
-      insuranceFundLoss: 0
+      totalExecuted: new Decimal(0),
+      remainingBalance: new Decimal(0),
+      insuranceFundLoss: new Decimal(0)
     };
 
     try {
-      // Attempt real market order execution if matching engine available
       if (this.matchingEngine && this.orderBook && !forceMode) {
         liquidationResult = await this.executeRealLiquidation(position, liquidationResult);
       } else {
-        // Fallback to mark price liquidation (legacy method)
-        liquidationResult = this.executeFallbackLiquidation(position, currentPrice, liquidationResult);
+        liquidationResult = this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
       }
 
-      // Update insurance fund based on actual execution
       this.updateInsuranceFund(liquidationResult);
 
       return liquidationResult;
 
     } catch (error) {
       console.error(`Liquidation failed for ${position.userId}:`, error);
-      // Emergency fallback
-      return this.executeFallbackLiquidation(position, currentPrice, liquidationResult);
+      return this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
     }
   }
 
-  // NEW: Execute liquidation through real market orders
   async executeRealLiquidation(position, liquidationResult) {
     const liquidationSide = position.side === 'long' ? 'sell' : 'buy';
     
-    // Create liquidation market order
     const liquidationOrder = {
       id: `liq_${Date.now()}_${position.userId}`,
       userId: 'liquidation_engine', // Special liquidation user
@@ -155,73 +152,63 @@ class LiquidationEngine {
       isLiquidation: true // Special flag
     };
 
-    // Execute through matching engine
     const matches = this.matchingEngine.match(liquidationOrder);
     
+    const totalExecuted = new Decimal(liquidationOrder.filledSize || 0);
     liquidationResult.fills = liquidationOrder.fills || [];
-    liquidationResult.totalExecuted = liquidationOrder.filledSize || 0;
+    liquidationResult.totalExecuted = totalExecuted;
     
-    // If no market execution occurred (no opposing orders), fall back to insurance fund execution
-    if (liquidationResult.totalExecuted === 0) {
+    if (totalExecuted.isZero()) {
       console.log(`No market liquidity for liquidation - falling back to insurance fund execution at mark price`);
       return this.executeFallbackLiquidation(position, liquidationResult.executionPrice, liquidationResult);
     }
     
-    // Market execution successful
+    const avgExecutionPrice = new Decimal(liquidationOrder.avgFillPrice || liquidationResult.executionPrice);
     liquidationResult.method = 'market_order';
-    liquidationResult.executionPrice = liquidationOrder.avgFillPrice || liquidationResult.executionPrice;
-    liquidationResult.slippage = Math.abs(liquidationResult.executionPrice - liquidationResult.executionPrice) / liquidationResult.executionPrice;
+    liquidationResult.executionPrice = avgExecutionPrice;
+    liquidationResult.slippage = avgExecutionPrice.minus(liquidationResult.executionPrice).abs().dividedBy(liquidationResult.executionPrice);
 
-    // Calculate remaining balance based on actual execution
-    const executedValue = liquidationResult.totalExecuted * liquidationResult.executionPrice;
-    const liquidationFeeActual = executedValue * this.liquidationFeeRate;
+    const executedValue = totalExecuted.times(avgExecutionPrice);
+    const liquidationFeeActual = executedValue.times(this.liquidationFeeRate);
     
+    let totalLoss;
     if (position.side === 'long') {
-      const totalLoss = (position.avgEntryPrice - liquidationResult.executionPrice) * liquidationResult.totalExecuted;
-      liquidationResult.remainingBalance = Math.max(0, position.initialMargin - totalLoss - liquidationFeeActual);
+      totalLoss = position.avgEntryPrice.minus(avgExecutionPrice).times(totalExecuted);
     } else {
-      const totalLoss = (liquidationResult.executionPrice - position.avgEntryPrice) * liquidationResult.totalExecuted;
-      liquidationResult.remainingBalance = Math.max(0, position.initialMargin - totalLoss - liquidationFeeActual);
+      totalLoss = avgExecutionPrice.minus(position.avgEntryPrice).times(totalExecuted);
     }
+    liquidationResult.remainingBalance = Decimal.max(0, position.initialMargin.minus(totalLoss).minus(liquidationFeeActual));
 
     return liquidationResult;
   }
 
-  // Fallback liquidation at mark price (original method, improved)
   executeFallbackLiquidation(position, currentPrice, liquidationResult) {
-    const positionValue = position.size * currentPrice;
-    const liquidationFee = positionValue * this.liquidationFeeRate;
+    const decCurrentPrice = new Decimal(currentPrice);
+    const positionValue = position.size.times(decCurrentPrice);
+    const liquidationFee = positionValue.times(this.liquidationFeeRate);
     
-    // Calculate losses
     let totalLoss;
     if (position.side === 'long') {
-      totalLoss = Math.max(0, (position.avgEntryPrice - currentPrice) * position.size);
+      totalLoss = Decimal.max(0, position.avgEntryPrice.minus(decCurrentPrice).times(position.size));
     } else {
-      totalLoss = Math.max(0, (currentPrice - position.avgEntryPrice) * position.size);
+      totalLoss = Decimal.max(0, decCurrentPrice.minus(position.avgEntryPrice).times(position.size));
     }
-    
-    // Remaining balance after liquidation
-    const remainingBalance = Math.max(0, position.initialMargin - totalLoss - liquidationFee);
     
     liquidationResult.method = 'mark_price';
     liquidationResult.totalExecuted = position.size;
-    liquidationResult.remainingBalance = remainingBalance;
+    liquidationResult.remainingBalance = Decimal.max(0, position.initialMargin.minus(totalLoss).minus(liquidationFee));
     liquidationResult.liquidationFee = liquidationFee;
 
     return liquidationResult;
   }
 
-  // NEW: Fixed insurance fund calculation with history tracking
   updateInsuranceFund(liquidationResult) {
     const { remainingBalance, liquidationFee, totalExecuted, executionPrice, side, entryPrice, initialMargin, userId } = liquidationResult;
     
     console.log(`Updating insurance fund - Liquidation fee: $${liquidationFee.toFixed(2)}, totalExecuted: ${totalExecuted}, remainingBalance: $${remainingBalance.toFixed(2)}`);
     
-    // Insurance fund gains liquidation fees
-    const oldBalance = this.insuranceFund;
-    this.insuranceFund += liquidationFee;
+    this.insuranceFund = this.insuranceFund.plus(liquidationFee);
     
-    // Record liquidation fee collection
     this.recordInsuranceFundChange({
       type: 'liquidation_fee',
       amount: liquidationFee,
@@ -229,38 +216,35 @@ class LiquidationEngine {
       description: `Liquidation fee from ${userId} (${side} ${totalExecuted} BTC @ $${executionPrice})`
     });
     
-    console.log(`Insurance fund gains fee: $${liquidationFee.toFixed(2)}, new balance: $${this.insuranceFund.toFixed(2)}`);
+    console.log(`Insurance fund gains fee: $${liquidationFee.toFixed(2)}, new balance: $${this.insuranceFund.toNumber().toFixed(2)}`);
     
-    // Insurance fund only pays if user balance goes negative
-    if (remainingBalance === 0) {
+    if (remainingBalance.isZero()) {
       let actualLoss;
       if (side === 'long') {
-        actualLoss = Math.max(0, (entryPrice - executionPrice) * totalExecuted);
+        actualLoss = Decimal.max(0, new Decimal(entryPrice).minus(executionPrice).times(totalExecuted));
       } else {
-        actualLoss = Math.max(0, (executionPrice - entryPrice) * totalExecuted);
+        actualLoss = Decimal.max(0, new Decimal(executionPrice).minus(entryPrice).times(totalExecuted));
       }
       
       console.log(`User balance is zero - actualLoss: $${actualLoss.toFixed(2)}, initialMargin: $${(initialMargin || 0).toFixed(2)}`);
       
-      // Only pay out if loss exceeds initial margin (bankruptcy situation)
-      if (actualLoss > (initialMargin || 0)) {
-        const shortfall = actualLoss - (initialMargin || 0);
-        this.insuranceFund -= shortfall;
+      const decInitialMargin = new Decimal(initialMargin || 0);
+      if (actualLoss.greaterThan(decInitialMargin)) {
+        const shortfall = actualLoss.minus(decInitialMargin);
+        this.insuranceFund = this.insuranceFund.minus(shortfall);
         liquidationResult.insuranceFundLoss = shortfall;
         
-        // Record insurance fund payout
         this.recordInsuranceFundChange({
           type: 'bankruptcy_payout',
-          amount: -shortfall,
+          amount: shortfall.negated(),
           balance: this.insuranceFund,
-          description: `Bankruptcy payout for ${userId} (shortfall: $${shortfall.toFixed(2)})`
+          description: `Bankruptcy coverage for ${userId}. Shortfall: $${shortfall.toFixed(2)}`
         });
         
-        console.log(`Insurance fund pays shortfall: $${shortfall.toFixed(2)}, new balance: $${this.insuranceFund.toFixed(2)}`);
+        console.log(`Insurance fund pays shortfall: $${shortfall.toFixed(2)}, new balance: $${this.insuranceFund.toNumber().toFixed(2)}`);
       }
     }
     
-    // Record complete liquidation event
     this.recordLiquidationEvent(liquidationResult);
   }
 
@@ -274,70 +258,41 @@ class LiquidationEngine {
 
   // Record detailed liquidation events
   recordLiquidationEvent(liquidationResult) {
-    const liquidationRecord = {
-      id: `liq_${liquidationResult.timestamp}_${liquidationResult.userId}`,
-      timestamp: liquidationResult.timestamp,
-      userId: liquidationResult.userId,
-      side: liquidationResult.side,
-      size: liquidationResult.size,
-      entryPrice: liquidationResult.entryPrice,
-      executionPrice: liquidationResult.executionPrice,
-      liquidationPrice: this.calculateLiquidationPrice({ 
-        avgEntryPrice: liquidationResult.entryPrice, 
-        side: liquidationResult.side,
-        leverage: liquidationResult.initialMargin ? (liquidationResult.size * liquidationResult.entryPrice) / liquidationResult.initialMargin : 1
-      }),
-      bankruptcyPrice: liquidationResult.bankruptcyPrice,
-      method: liquidationResult.method,
-      liquidationFee: liquidationResult.liquidationFee,
-      remainingBalance: liquidationResult.remainingBalance,
-      insuranceFundContribution: liquidationResult.liquidationFee,
-      insuranceFundLoss: liquidationResult.insuranceFundLoss || 0,
-      netInsuranceFundImpact: liquidationResult.liquidationFee - (liquidationResult.insuranceFundLoss || 0),
-      fills: liquidationResult.fills || [],
-      slippage: liquidationResult.slippage || 0
-    };
-    
-    this.liquidationHistory.push(liquidationRecord);
+    // Sanitize for JSON conversion if Decimal objects are used
+    const sanitizedResult = { ...liquidationResult };
+    for (const key in sanitizedResult) {
+      if (sanitizedResult[key] instanceof Decimal) {
+        sanitizedResult[key] = sanitizedResult[key].toNumber();
+      }
+    }
+    this.liquidationHistory.push(sanitizedResult);
   }
 
   calculateBankruptcyPrice(position) {
-    // Use MarginCalculator for consistent logic
     if (this.marginCalculator) {
       return this.marginCalculator.calculateBankruptcyPrice(position);
     }
-    
-    // Fallback calculation
-    const { avgEntryPrice, leverage, side } = position;
-
+    // Fallback
+    const { side } = position;
+    const avgEntryPrice = new Decimal(position.avgEntryPrice);
+    const leverage = new Decimal(position.leverage);
     if (side === 'long') {
-      return avgEntryPrice * (1 - 1/leverage);
+      return avgEntryPrice.times(new Decimal(1).minus(new Decimal(1).div(leverage)));
     } else {
-      return avgEntryPrice * (1 + 1/leverage);
+      return avgEntryPrice.times(new Decimal(1).plus(new Decimal(1).div(leverage)));
     }
   }
 
   // NEW: Queue-based liquidation processing
   addToLiquidationQueue(position, priority = 'normal') {
-    const queueItem = {
-      position,
-      priority, // 'urgent', 'normal', 'partial'
-      timestamp: Date.now(),
-      attempts: 0,
-      maxAttempts: 3
-    };
-    
-    this.liquidationQueue.push(queueItem);
-    this.liquidationQueue.sort((a, b) => {
-      // Sort by priority, then by timestamp
-      const priorityOrder = { urgent: 0, normal: 1, partial: 2 };
-      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-        return priorityOrder[a.priority] - priorityOrder[b.priority];
+    const exists = this.liquidationQueue.some(item => item.position.userId === position.userId);
+    if (!exists) {
+      this.liquidationQueue.push({ position, priority, timestamp: Date.now() });
+      if (priority === 'high') {
+        this.liquidationQueue.sort((a, b) => (b.priority === 'high') - (a.priority === 'high'));
       }
-      return a.timestamp - b.timestamp;
-    });
-    
-    this.processLiquidationQueue();
+      console.log(`Added position for ${position.userId} to liquidation queue.`);
+    }
   }
 
   // NEW: Process liquidation queue
@@ -345,33 +300,30 @@ class LiquidationEngine {
     if (this.isProcessingQueue || this.liquidationQueue.length === 0) {
       return;
     }
-    
     this.isProcessingQueue = true;
-    
-    try {
-      while (this.liquidationQueue.length > 0) {
-        const queueItem = this.liquidationQueue.shift();
-        queueItem.attempts++;
-        
-        try {
-          const currentPrice = this.getCurrentMarkPrice();
-          const result = await this.liquidate(queueItem.position, currentPrice);
-          console.log(`Liquidation completed for ${queueItem.position.userId}`);
-        } catch (error) {
-          console.error(`Liquidation attempt ${queueItem.attempts} failed:`, error);
-          
-          if (queueItem.attempts < queueItem.maxAttempts) {
-            // Re-queue with delay
-            setTimeout(() => {
-              this.liquidationQueue.unshift(queueItem);
-            }, 1000 * queueItem.attempts); // Exponential backoff
-          } else {
-            console.error(`Liquidation failed permanently for ${queueItem.position.userId}`);
-          }
+    console.log(`Processing liquidation queue with ${this.liquidationQueue.length} items.`);
+
+    const item = this.liquidationQueue.shift();
+    if (item) {
+      try {
+        const currentPrice = this.getCurrentMarkPrice();
+        if (this.shouldLiquidate(item.position, currentPrice)) {
+          console.log(`Executing liquidation from queue for ${item.position.userId}`);
+          await this.liquidate(item.position, currentPrice);
+        } else {
+          console.log(`Position for ${item.position.userId} no longer requires liquidation.`);
         }
+      } catch (error) {
+        console.error(`Error processing liquidation queue for ${item.position.userId}:`, error);
+        // Re-queue on failure
+        this.liquidationQueue.unshift(item);
       }
-    } finally {
-      this.isProcessingQueue = false;
+    }
+
+    this.isProcessingQueue = false;
+    // Process next item
+    if (this.liquidationQueue.length > 0) {
+      this.processLiquidationQueue();
     }
   }
 
@@ -409,72 +361,103 @@ class LiquidationEngine {
   }
 
   getInsuranceFundBalance() {
-    return this.insuranceFund;
+    return this.insuranceFund.toNumber();
   }
 
   // Check if system is at risk (insurance fund low)
   isSystemAtRisk() {
-    return this.insuranceFund < 100000; // $100k threshold
+    return this.insuranceFund.lessThan(100000); // $100k threshold
   }
 
   // NEW: Get current mark price (helper for queue processing)
   getCurrentMarkPrice() {
-    // This should be injected or accessed from exchange
-    return 45000; // Fallback price
+    // In a real system, this would come from an oracle or the exchange's mark price module
+    return this.matchingEngine ? (this.matchingEngine.exchange.markPrice || 0) : 0;
   }
 
   // NEW: Get liquidation queue status
   getQueueStatus() {
     return {
-      queueLength: this.liquidationQueue.length,
       isProcessing: this.isProcessingQueue,
-      urgent: this.liquidationQueue.filter(item => item.priority === 'urgent').length,
-      normal: this.liquidationQueue.filter(item => item.priority === 'normal').length,
-      partial: this.liquidationQueue.filter(item => item.priority === 'partial').length
+      queueSize: this.liquidationQueue.length,
+      queue: this.liquidationQueue.map(item => ({
+        userId: item.position.userId,
+        priority: item.priority,
+        timestamp: item.timestamp
+      }))
     };
   }
 
   // Get insurance fund history
   getInsuranceFundHistory() {
     return {
-      currentBalance: this.insuranceFund,
-      history: this.insuranceFundHistory.slice().reverse(), // Most recent first
-      liquidations: this.liquidationHistory.slice().reverse(), // Most recent first
-      summary: this.getInsuranceFundSummary()
+      currentBalance: this.insuranceFund.toNumber(),
+      history: this.insuranceFundHistory.map(item => ({
+        ...item,
+        amount: item.amount.toNumber(),
+        balance: item.balance.toNumber()
+      })).slice().reverse(),
+      liquidations: this.liquidationHistory.map(liq => {
+        const sanitized = {};
+        for(const key in liq) {
+            sanitized[key] = (liq[key] instanceof Decimal) ? liq[key].toNumber() : liq[key];
+        }
+        return sanitized;
+      }).slice().reverse(),
     };
   }
 
   // Get insurance fund performance summary
   getInsuranceFundSummary() {
-    const totalLiquidations = this.liquidationHistory.length;
-    const totalFeesCollected = this.liquidationHistory.reduce((sum, liq) => sum + liq.liquidationFee, 0);
-    const totalPayouts = this.liquidationHistory.reduce((sum, liq) => sum + liq.insuranceFundLoss, 0);
-    const netGain = totalFeesCollected - totalPayouts;
+    const initialBalance = new Decimal(1000000);
+    const totalDeposits = this.insuranceFundHistory
+      .filter(h => h.type === 'manual_deposit')
+      .reduce((sum, h) => sum.plus(h.amount), new Decimal(0));
     
-    const methodBreakdown = this.liquidationHistory.reduce((acc, liq) => {
-      acc[liq.method] = (acc[liq.method] || 0) + 1;
-      return acc;
-    }, {});
+    const totalWithdrawals = this.insuranceFundHistory
+      .filter(h => h.type === 'manual_withdrawal')
+      .reduce((sum, h) => sum.plus(h.amount.abs()), new Decimal(0));
+
+    const totalFees = this.insuranceFundHistory
+      .filter(h => h.type === 'liquidation_fee')
+      .reduce((sum, h) => sum.plus(h.amount), new Decimal(0));
+
+    const totalPayouts = this.insuranceFundHistory
+      .filter(h => h.type === 'bankruptcy_payout')
+      .reduce((sum, h) => sum.plus(h.amount.abs()), new Decimal(0));
 
     const sideBreakdown = this.liquidationHistory.reduce((acc, liq) => {
-      acc[liq.side] = (acc[liq.side] || 0) + 1;
+      acc[liq.side] = (acc[liq.side] || 0) + liq.size;
       return acc;
     }, {});
 
-    return {
-      totalLiquidations,
-      totalFeesCollected,
-      totalPayouts,
-      netGain,
-      profitability: totalFeesCollected > 0 ? (netGain / totalFeesCollected * 100) : 0,
-      averageFeePerLiquidation: totalLiquidations > 0 ? totalFeesCollected / totalLiquidations : 0,
-      methodBreakdown,
+    const totalGrowth = this.insuranceFund.minus(initialBalance);
+    const growthPercentage = initialBalance.isZero() ? new Decimal(0) : totalGrowth.dividedBy(initialBalance).times(100);
+
+    const summary = {
+      initialBalance: initialBalance.toNumber(),
+      currentBalance: this.insuranceFund.toNumber(),
+      totalDeposits: totalDeposits.toNumber(),
+      totalWithdrawals: totalWithdrawals.toNumber(),
+      totalFeesCollected: totalFees.toNumber(),
+      totalPayouts: totalPayouts.toNumber(),
+      netOperationalGain: totalFees.minus(totalPayouts).toNumber(),
+      totalLiquidations: this.liquidationHistory.length,
       sideBreakdown,
-      initialBalance: 1000000,
-      currentBalance: this.insuranceFund,
-      totalGrowth: this.insuranceFund - 1000000,
-      growthPercentage: ((this.insuranceFund - 1000000) / 1000000) * 100
+      totalGrowth: totalGrowth.toNumber(),
+      growthPercentage: growthPercentage.toNumber()
     };
+    
+    // Additional fields expected by the frontend
+    summary.averageFeePerLiquidation = summary.totalLiquidations > 0 ? summary.totalFeesCollected / summary.totalLiquidations : 0;
+    summary.netGain = summary.netOperationalGain;
+    summary.profitability = summary.totalFeesCollected > 0 ? (summary.netGain / summary.totalFeesCollected) * 100 : 0;
+    summary.methodBreakdown = this.liquidationHistory.reduce((acc, liq) => {
+        acc[liq.method] = (acc[liq.method] || 0) + 1;
+        return acc;
+    }, {});
+
+    return summary;
   }
 }
 
