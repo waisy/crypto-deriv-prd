@@ -26,7 +26,20 @@ wss.on('connection', (ws) => {
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
+      
+      // Debug logging for all WebSocket messages
+      console.log('📨 WebSocket message received:', {
+        type: data.type,
+        clientId: clientId.substring(0, 8),
+        data: data
+      });
+      
       const response = await exchange.handleMessage(data);
+      
+      console.log('✅ WebSocket message processed successfully:', {
+        type: data.type,
+        success: response.success !== false
+      });
       
       // Broadcast to all clients for real-time updates
       const broadcastData = {
@@ -40,6 +53,12 @@ wss.on('connection', (ws) => {
         }
       });
     } catch (error) {
+      console.error('❌ WebSocket message error:', {
+        clientId: clientId.substring(0, 8),
+        error: error.message,
+        stack: error.stack,
+        rawMessage: message.toString()
+      });
       ws.send(JSON.stringify({ error: error.message }));
     }
   });

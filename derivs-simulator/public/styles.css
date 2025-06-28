@@ -224,6 +224,49 @@ body {
     background: #3a3f4e;
 }
 
+/* Price Adjustment Buttons */
+.price-adjustment-buttons {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: space-between;
+}
+
+.btn-adjustment {
+    flex: 1;
+    min-width: 45px;
+    padding: 6px 8px;
+    border: 1px solid;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.btn-adjustment.down {
+    background: #0a0e1a;
+    border-color: #ff4757;
+    color: #ff4757;
+}
+
+.btn-adjustment.down:hover {
+    background: #ff4757;
+    color: #0a0e1a;
+}
+
+.btn-adjustment.up {
+    background: #0a0e1a;
+    border-color: #00d4aa;
+    color: #00d4aa;
+}
+
+.btn-adjustment.up:hover {
+    background: #00d4aa;
+    color: #0a0e1a;
+}
+
 .btn-small {
     padding: 6px 12px;
     background: #2a2f3e;
@@ -961,14 +1004,15 @@ body {
     background: #0a0e1a;
 }
 
-.positions-table, .orders-table {
+.positions-table, .orders-table, .trades-table, .liquidation-engine-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.85rem;
     background: transparent;
+    table-layout: fixed;
 }
 
-.positions-table th, .orders-table th {
+.positions-table th, .orders-table th, .trades-table th, .liquidation-engine-table th {
     background: #1a1f2e;
     color: #8892b0;
     font-weight: 600;
@@ -980,13 +1024,47 @@ body {
     z-index: 10;
 }
 
-.positions-table td, .orders-table td {
+.positions-table td, .orders-table td, .trades-table td, .liquidation-engine-table td {
     padding: 6px;
     border-bottom: 1px solid #1a1f2e;
     color: #e1e1e1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.position-row:hover, .order-row:hover {
+/* Positions table column widths */
+.positions-table th:nth-child(1), .positions-table td:nth-child(1) { width: 12%; } /* Side */
+.positions-table th:nth-child(2), .positions-table td:nth-child(2) { width: 15%; } /* Size */
+.positions-table th:nth-child(3), .positions-table td:nth-child(3) { width: 18%; } /* Entry Price */
+.positions-table th:nth-child(4), .positions-table td:nth-child(4) { width: 18%; } /* Mark Price */
+.positions-table th:nth-child(5), .positions-table td:nth-child(5) { width: 18%; } /* Liq Price */
+.positions-table th:nth-child(6), .positions-table td:nth-child(6) { width: 15%; } /* PnL */
+.positions-table th:nth-child(7), .positions-table td:nth-child(7) { width: 12%; } /* RoE */
+
+/* Orders table column widths */
+.orders-table th:nth-child(1), .orders-table td:nth-child(1) { width: 12%; } /* Side */
+.orders-table th:nth-child(2), .orders-table td:nth-child(2) { width: 18%; } /* Size */
+.orders-table th:nth-child(3), .orders-table td:nth-child(3) { width: 20%; } /* Price */
+.orders-table th:nth-child(4), .orders-table td:nth-child(4) { width: 18%; } /* Filled */
+.orders-table th:nth-child(5), .orders-table td:nth-child(5) { width: 15%; } /* Status */
+.orders-table th:nth-child(6), .orders-table td:nth-child(6) { width: 17%; } /* Action */
+
+/* Trades table column widths */
+.trades-table th:nth-child(1), .trades-table td:nth-child(1) { width: 40%; } /* Price */
+.trades-table th:nth-child(2), .trades-table td:nth-child(2) { width: 35%; } /* Size */
+.trades-table th:nth-child(3), .trades-table td:nth-child(3) { width: 25%; } /* Time */
+
+/* Liquidation Engine table column widths */
+.liquidation-engine-table th:nth-child(1), .liquidation-engine-table td:nth-child(1) { width: 10%; } /* Side */
+.liquidation-engine-table th:nth-child(2), .liquidation-engine-table td:nth-child(2) { width: 15%; } /* Size */
+.liquidation-engine-table th:nth-child(3), .liquidation-engine-table td:nth-child(3) { width: 17%; } /* Entry Price */
+.liquidation-engine-table th:nth-child(4), .liquidation-engine-table td:nth-child(4) { width: 17%; } /* Mark Price */
+.liquidation-engine-table th:nth-child(5), .liquidation-engine-table td:nth-child(5) { width: 15%; } /* P&L */
+.liquidation-engine-table th:nth-child(6), .liquidation-engine-table td:nth-child(6) { width: 13%; } /* Status */
+.liquidation-engine-table th:nth-child(7), .liquidation-engine-table td:nth-child(7) { width: 13%; } /* Time */
+
+.position-row:hover, .order-row:hover, .trade-row:hover, .liquidation-position-row:hover {
     background: rgba(247, 147, 26, 0.05);
 }
 
@@ -1015,6 +1093,34 @@ body {
 .size-cell, .price-cell, .filled-cell, .pnl-cell, .roe-cell {
     text-align: right;
     font-family: 'Courier New', monospace;
+}
+
+/* Align headers to match their data alignment */
+/* Right-align numeric column headers */
+.positions-table th:nth-child(2), /* Size */
+.positions-table th:nth-child(3), /* Entry Price */
+.positions-table th:nth-child(4), /* Mark Price */
+.positions-table th:nth-child(5), /* Liq Price */
+.positions-table th:nth-child(6), /* PnL */
+.positions-table th:nth-child(7), /* RoE */
+.orders-table th:nth-child(2), /* Size */
+.orders-table th:nth-child(3), /* Price */
+.orders-table th:nth-child(4), /* Filled */
+.trades-table th:nth-child(1), /* Price */
+.trades-table th:nth-child(2), /* Size */
+.liquidation-engine-table th:nth-child(2), /* Size */
+.liquidation-engine-table th:nth-child(3), /* Entry Price */
+.liquidation-engine-table th:nth-child(4), /* Mark Price */
+.liquidation-engine-table th:nth-child(5) /* P&L */ {
+    text-align: right;
+}
+
+/* Center-align some headers */
+.trades-table th:nth-child(3), /* Time */
+.orders-table th:nth-child(6), /* Action */
+.liquidation-engine-table th:nth-child(6), /* Status */
+.liquidation-engine-table th:nth-child(7) /* Time */ {
+    text-align: center;
 }
 
 .pnl-cell.pnl-positive, .roe-cell.pnl-positive {
@@ -1091,4 +1197,62 @@ body {
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
+}
+
+/* Trades table specific styling */
+.trades-table .price-cell, .trades-table .size-cell {
+    text-align: right;
+    font-family: 'Courier New', monospace;
+}
+
+.trades-table .time-cell {
+    text-align: center;
+    color: #8892b0;
+    font-size: 0.8rem;
+}
+
+/* Trade direction indicators */
+.trade-row.trade-buy {
+    background: rgba(0, 212, 170, 0.08);
+    border-left: 3px solid #00d4aa;
+}
+
+.trade-row.trade-sell {
+    background: rgba(255, 71, 87, 0.08);
+    border-left: 3px solid #ff4757;
+}
+
+.trade-row.trade-neutral {
+    background: rgba(136, 146, 176, 0.05);
+    border-left: 3px solid #8892b0;
+}
+
+.trade-row.trade-buy .price-cell {
+    color: #00d4aa;
+    font-weight: 600;
+}
+
+.trade-row.trade-sell .price-cell {
+    color: #ff4757;
+    font-weight: 600;
+}
+
+.trade-row.trade-neutral .price-cell {
+    color: #e1e1e1;
+    font-weight: 500;
+}
+
+/* Trades table header alignment */
+.trades-table th:first-child {
+    text-align: right;
+    padding-right: 12px;
+}
+
+.trades-table th:nth-child(2) {
+    text-align: right;
+    padding-right: 12px;
+}
+
+.trades-table th:last-child {
+    text-align: center;
 }

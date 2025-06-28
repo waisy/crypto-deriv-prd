@@ -129,6 +129,135 @@
             font-style: italic;
             padding: 10px;
         }
+
+        /* Liquidation Engine Styles */
+        .liquidation-engine-section {
+            margin-top: 20px;
+        }
+
+        .liquidation-summary {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 5px;
+            border: 1px solid #2a2f3e;
+        }
+
+        .summary-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #8892b0;
+        }
+
+        .stat-value {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .liquidation-engine-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .liquidation-engine-table th,
+        .liquidation-engine-table td {
+            padding: 8px 4px;
+            text-align: right;
+            border-bottom: 1px solid #2a2f3e;
+        }
+
+        .liquidation-engine-table th:first-child,
+        .liquidation-engine-table td:first-child {
+            text-align: left;
+        }
+
+        .liquidation-engine-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .liquidation-controls {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 5px;
+            border: 1px solid #2a2f3e;
+        }
+
+        .liquidation-controls h4 {
+            margin: 0 0 10px 0;
+            color: #ffffff;
+            font-size: 0.9rem;
+        }
+
+        .control-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .control-buttons button {
+            flex: 1;
+            padding: 6px 8px;
+            font-size: 0.8rem;
+        }
+
+        .liquidation-status {
+            font-size: 0.8rem;
+            color: #8892b0;
+            text-align: center;
+            font-style: italic;
+        }
+
+        .le-side-long {
+            color: #00d4aa;
+            font-weight: 600;
+        }
+
+        .le-side-short {
+            color: #ff4757;
+            font-weight: 600;
+        }
+
+        .le-pnl-positive {
+            color: #00d4aa;
+        }
+
+        .le-pnl-negative {
+            color: #ff4757;
+        }
+
+        .le-status-pending {
+            color: #f39c12;
+        }
+
+        .le-status-attempting {
+            color: #3498db;
+        }
+
+        .le-status-failed {
+            color: #ff4757;
+        }
+
+        .le-status-completed {
+            color: #00d4aa;
+        }
+
+        .no-positions {
+            text-align: center;
+            color: #8892b0;
+            font-style: italic;
+            padding: 10px;
+        }
     </style>
 </head>
 <body>
@@ -177,7 +306,7 @@
 
                     <div class="form-row">
                         <label>Size (BTC)</label>
-                        <input type="number" id="orderSize" step="0.001" min="0.001" value="0.001" placeholder="0.001">
+                        <input type="text" id="orderSize" value="0.001" placeholder="0.001">
                         <div class="size-buttons">
                             <button type="button" class="btn-small" onclick="setSize(0.001)">0.001</button>
                             <button type="button" class="btn-small" onclick="setSize(0.01)">0.01</button>
@@ -188,7 +317,7 @@
 
                     <div class="form-row" id="priceRow">
                         <label>Price (USD)</label>
-                        <input type="number" id="orderPrice" step="0.01" min="1" placeholder="45000">
+                        <input type="text" id="orderPrice" placeholder="45,000.00">
                     </div>
 
                     <div class="form-row">
@@ -216,8 +345,19 @@
                 <h4>Quick Actions</h4>
                 <div class="form-row">
                     <label>Update Mark Price</label>
-                    <input type="number" id="newMarkPrice" step="0.01" placeholder="New price">
+                    <input type="text" id="newMarkPrice" placeholder="e.g. 47,500.00">
                     <button class="btn-secondary" onclick="updateMarkPrice()">Update Price</button>
+                </div>
+                <div class="form-row">
+                    <label>Quick Adjustments</label>
+                    <div class="price-adjustment-buttons">
+                        <button class="btn-adjustment down" onclick="adjustMarkPrice(-10)" title="Down 10%">-10%</button>
+                        <button class="btn-adjustment down" onclick="adjustMarkPrice(-5)" title="Down 5%">-5%</button>
+                        <button class="btn-adjustment down" onclick="adjustMarkPrice(-1)" title="Down 1%">-1%</button>
+                        <button class="btn-adjustment up" onclick="adjustMarkPrice(1)" title="Up 1%">+1%</button>
+                        <button class="btn-adjustment up" onclick="adjustMarkPrice(5)" title="Up 5%">+5%</button>
+                        <button class="btn-adjustment up" onclick="adjustMarkPrice(10)" title="Up 10%">+10%</button>
+                    </div>
                 </div>
             </div>
 
@@ -304,8 +444,21 @@
 
                 <div class="trades-section">
                     <h3>Recent Trades</h3>
-                    <div class="trades-container" id="trades">
-                        <div class="no-trades">No recent trades</div>
+                    <div class="table-container">
+                        <table class="trades-table" id="tradesTable">
+                            <thead>
+                                <tr>
+                                    <th>Price</th>
+                                    <th>Size</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades">
+                                <tr class="no-data-row">
+                                    <td colspan="3" class="no-trades">No recent trades</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
                 
@@ -313,6 +466,63 @@
                     <h3>ADL Ranking</h3>
                     <div class="adl-queue" id="adlQueue">
                         <div class="no-adl">No profitable positions</div>
+                    </div>
+                </div>
+
+                <div class="liquidation-engine-section">
+                    <h3>Liquidation Engine</h3>
+                    <div class="liquidation-summary" id="liquidationSummary">
+                        <div class="summary-stat">
+                            <span class="stat-label">Positions:</span>
+                            <span class="stat-value" id="lePositionCount">0</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">Total P&L:</span>
+                            <span class="stat-value" id="leTotalPnL">$0.00</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">IF Exposure:</span>
+                            <span class="stat-value" id="leIfExposure">$0.00</span>
+                        </div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table class="liquidation-engine-table" id="liquidationEngineTable">
+                            <thead>
+                                <tr>
+                                    <th>Side</th>
+                                    <th>Size</th>
+                                    <th>Entry Price</th>
+                                    <th>Mark Price</th>
+                                    <th>P&L</th>
+                                    <th>Status</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="liquidationEnginePositions">
+                                <tr class="no-data-row">
+                                    <td colspan="7" class="no-positions">No liquidation positions</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="liquidation-controls">
+                        <h4>Manual Controls</h4>
+                        <div class="control-buttons">
+                            <button class="btn-secondary" onclick="executeLiquidationStep('orderbook')" disabled id="orderbookBtn">
+                                Try Order Book
+                            </button>
+                            <button class="btn-secondary" onclick="executeLiquidationStep('adl')" disabled id="adlBtn">
+                                Execute ADL
+                            </button>
+                            <button class="btn-secondary" onclick="executeLiquidationStep('force')" disabled id="forceBtn">
+                                Force Close
+                            </button>
+                        </div>
+                        <div class="liquidation-status" id="liquidationStatus">
+                            Ready for liquidation operations
+                        </div>
                     </div>
                 </div>
             </div>
@@ -365,14 +575,129 @@
         // --- Utility Functions ---
         function formatBTCAmount(amount) {
             // Format BTC amounts to 3 decimal places (minimum order size is 0.001)
-            const decimal = new Decimal(amount);
-            return decimal.toFixed(3);
+            try {
+                if (!amount && amount !== 0) return '0.000';
+                // Clean the input before creating Decimal
+                const cleanAmount = typeof amount === 'string' ? 
+                    amount.replace(/[^0-9.-]/g, '') : amount;
+                const decimal = new Decimal(cleanAmount);
+                return decimal.toFixed(3);
+            } catch (e) {
+                console.error('Error formatting BTC amount:', e, 'amount:', amount);
+                return '0.000';
+            }
         }
         
         function formatPrice(price) {
             // Format USD prices to 2 decimal places with proper comma formatting
-            const decimal = new Decimal(price);
-            return decimal.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            try {
+                if (!price && price !== 0) return '0.00';
+                // Clean the input before creating Decimal
+                const cleanPrice = typeof price === 'string' ? 
+                    price.replace(/[^0-9.-]/g, '') : price;
+                const decimal = new Decimal(cleanPrice);
+                return decimal.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            } catch (e) {
+                console.error('Error formatting price:', e, 'price:', price);
+                return '0.00';
+            }
+        }
+
+        // --- Input Formatting Functions ---
+        function formatNumberInput(value, type) {
+            if (!value || value === '' || value === null || value === undefined) return '';
+            
+            try {
+                // Clean the value first - remove all non-numeric characters except decimal point
+                let cleanValue = value.toString().replace(/[^0-9.]/g, '');
+                
+                // Handle multiple decimal points by keeping only the first one
+                const decimalParts = cleanValue.split('.');
+                if (decimalParts.length > 2) {
+                    cleanValue = decimalParts[0] + '.' + decimalParts.slice(1).join('');
+                }
+                
+                const num = parseFloat(cleanValue);
+                if (isNaN(num) || num < 0) return '';
+                
+                if (type === 'btc') {
+                    // Format BTC amounts to 3 decimal places
+                    return num.toFixed(3);
+                } else if (type === 'price') {
+                    // Format USD prices with commas and 2 decimal places
+                    return num.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    });
+                }
+                return cleanValue;
+            } catch (e) {
+                console.error('Error formatting number input:', e, 'value:', value);
+                return '';
+            }
+        }
+        
+        function parseNumberInput(value) {
+            // Remove commas and other formatting for calculations
+            if (!value || value === '' || value === null || value === undefined) return '';
+            
+            try {
+                // Clean the value - remove all non-numeric characters except decimal point
+                let cleanValue = value.toString().replace(/[^0-9.]/g, '');
+                
+                // Handle multiple decimal points by keeping only the first one
+                const decimalParts = cleanValue.split('.');
+                if (decimalParts.length > 2) {
+                    cleanValue = decimalParts[0] + '.' + decimalParts.slice(1).join('');
+                }
+                
+                return cleanValue;
+            } catch (e) {
+                console.error('Error parsing number input:', e, 'value:', value);
+                return '';
+            }
+        }
+        
+        function setupInputFormatting(inputId, type) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            
+            // Store the original value without formatting for calculations
+            let lastValidValue = input.value;
+            
+            // Format on blur (when user leaves the field)
+            input.addEventListener('blur', function() {
+                const rawValue = parseNumberInput(this.value);
+                if (rawValue !== '') {
+                    const formatted = formatNumberInput(rawValue, type);
+                    this.value = formatted;
+                    lastValidValue = rawValue;
+                }
+            });
+            
+            // Remove formatting on focus (when user enters the field)
+            input.addEventListener('focus', function() {
+                const rawValue = parseNumberInput(this.value);
+                this.value = rawValue;
+            });
+            
+            // Validate input as user types
+            input.addEventListener('input', function() {
+                const rawValue = parseNumberInput(this.value);
+                
+                // For calculations, use the raw value
+                lastValidValue = rawValue;
+                
+                // Update any dependent calculations
+                if (inputId === 'orderSize' || inputId === 'orderPrice') {
+                    updateMarginInfo();
+                }
+            });
+            
+            // Helper function to get the raw number value
+            input.getRawValue = function() {
+                return parseNumberInput(this.value);
+            };
         }
 
         // --- UI Update Functions ---
@@ -387,6 +712,7 @@
             updateOpenOrders();
             updateInsuranceFund();
             updateADLQueue();
+            updateLiquidationEngine();
             
             // Update leverage dropdown based on user's current setting
             const user = state.users.find(u => u.id === currentUser);
@@ -400,9 +726,19 @@
         }
         
         function updatePriceInfo() {
-            document.getElementById('markPrice').textContent = `$${new Decimal(state.markPrice).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            // Clean price data before creating Decimals
+            const cleanMarkPrice = typeof state.markPrice === 'string' ? 
+                state.markPrice.replace(/[^0-9.-]/g, '') : state.markPrice;
+            document.getElementById('markPrice').textContent = `$${new Decimal(cleanMarkPrice || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            
             const spread = state.orderBook.spread;
-            document.getElementById('spread').textContent = spread ? `Spread: $${new Decimal(spread).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Spread: -';
+            if (spread) {
+                const cleanSpread = typeof spread === 'string' ? 
+                    spread.replace(/[^0-9.-]/g, '') : spread;
+                document.getElementById('spread').textContent = `Spread: $${new Decimal(cleanSpread || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            } else {
+                document.getElementById('spread').textContent = 'Spread: -';
+            }
         }
 
         function updateOrderBook() {
@@ -421,6 +757,8 @@
                     el.className = 'order-level ask clickable';
                     el.innerHTML = `<span class="price">$${formatPrice(level.price)}</span> <span class="size">${formatBTCAmount(level.size)}</span>`;
                     el.onclick = () => { 
+                        // Click on ASK = BUY to aggress it
+                        setSide('buy');
                         setPrice(level.price);
                         setSize(level.size);
                     };
@@ -436,6 +774,8 @@
                     el.className = 'order-level bid clickable';
                     el.innerHTML = `<span class="price">$${formatPrice(level.price)}</span> <span class="size">${formatBTCAmount(level.size)}</span>`;
                     el.onclick = () => {
+                        // Click on BID = SELL to aggress it
+                        setSide('sell');
                         setPrice(level.price);
                         setSize(level.size);
                     };
@@ -446,22 +786,32 @@
 
         function updateTrades() {
             const tradesContainer = document.getElementById('trades');
-            tradesContainer.innerHTML = '<h4>Recent Trades</h4>';
+            tradesContainer.innerHTML = '';
             
             if (!state.trades || state.trades.length === 0) {
-                tradesContainer.innerHTML += '<div class="no-trades">No recent trades</div>';
+                tradesContainer.innerHTML = '<tr class="no-data-row"><td colspan="3" class="no-trades">No recent trades</td></tr>';
                 return;
             }
 
-            state.trades.slice().reverse().forEach(trade => {
-                const el = document.createElement('div');
-                el.className = `trade-row`; // Side is not available in trade object
-                el.innerHTML = `
-                    <span class="price">$${formatPrice(trade.price)}</span>
-                    <span class="size">${formatBTCAmount(trade.size)}</span>
-                    <span class="time">${new Date(trade.timestamp).toLocaleTimeString()}</span>
+            // Show most recent trades first (reverse order)
+            state.trades.slice().reverse().slice(0, 10).forEach(trade => {
+                // Determine trade direction (buy/sell) based on buyer/seller
+                const currentUserId = currentUser;
+                const isBuyTrade = trade.buyUserId === currentUserId;
+                const isSellTrade = trade.sellUserId === currentUserId;
+                
+                let tradeClass = 'trade-neutral';
+                if (isBuyTrade) tradeClass = 'trade-buy';
+                if (isSellTrade) tradeClass = 'trade-sell';
+                
+                const row = document.createElement('tr');
+                row.className = `trade-row ${tradeClass}`;
+                row.innerHTML = `
+                    <td class="price-cell">$${formatPrice(trade.price)}</td>
+                    <td class="size-cell">${formatBTCAmount(trade.size)}</td>
+                    <td class="time-cell">${new Date(trade.timestamp).toLocaleTimeString()}</td>
                 `;
-                tradesContainer.appendChild(el);
+                tradesContainer.appendChild(row);
             });
         }
         
@@ -471,10 +821,23 @@
             
             const position = state.positions.find(p => p.userId === currentUser);
             document.getElementById('currentUser').textContent = user.name;
-            const pnl = position ? new Decimal(position.unrealizedPnL) : new Decimal(0);
+            
+            // Clean user and position data before creating Decimals
+            const cleanPositionPnL = position && typeof position.unrealizedPnL === 'string' ? 
+                position.unrealizedPnL.replace(/[^0-9.-]/g, '') : position ? position.unrealizedPnL : 0;
+            const cleanMarginRatio = user.marginRatio !== 'N/A' && typeof user.marginRatio === 'string' ? 
+                user.marginRatio.replace(/[^0-9.-]/g, '') : user.marginRatio;
+            const cleanEquity = typeof user.equity === 'string' ? 
+                user.equity.replace(/[^0-9.-]/g, '') : user.equity;
+            const cleanAvailableBalance = typeof user.availableBalance === 'string' ? 
+                user.availableBalance.replace(/[^0-9.-]/g, '') : user.availableBalance;
+            const cleanUsedMargin = typeof user.usedMargin === 'string' ? 
+                user.usedMargin.replace(/[^0-9.-]/g, '') : user.usedMargin;
+            
+            const pnl = position ? new Decimal(cleanPositionPnL || 0) : new Decimal(0);
             const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'pnl-positive' : (pnl.isNegative() ? 'pnl-negative' : '');
             
-            const marginRatio = user.marginRatio !== 'N/A' ? new Decimal(user.marginRatio).toNumber() : null;
+            const marginRatio = user.marginRatio !== 'N/A' ? new Decimal(cleanMarginRatio || 0).toNumber() : null;
             let marginRatioClass = '';
             if (marginRatio !== null) {
                 if (marginRatio <= 105) marginRatioClass = 'value-danger';
@@ -486,15 +849,15 @@
                 <div class="user-info">
                     <div class="info-row">
                         <span class="info-label">Equity</span>
-                        <span class="info-value">$${new Decimal(user.equity).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        <span class="info-value">$${new Decimal(cleanEquity || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Available</span>
-                        <span class="info-value">$${new Decimal(user.availableBalance).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        <span class="info-value">$${new Decimal(cleanAvailableBalance || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Used Margin</span>
-                        <span class="info-value">$${new Decimal(user.usedMargin).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        <span class="info-value">$${new Decimal(cleanUsedMargin || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Unrealized PnL</span>
@@ -521,15 +884,25 @@
                 return;
             }
             
-            const pnl = new Decimal(position.unrealizedPnL);
+            // Clean position data before creating Decimals
+            const cleanPnL = typeof position.unrealizedPnL === 'string' ? 
+                position.unrealizedPnL.replace(/[^0-9.-]/g, '') : position.unrealizedPnL;
+            const cleanRoe = typeof position.roe === 'string' ? 
+                position.roe.replace(/[^0-9.-]/g, '') : position.roe;
+            const cleanMarkPrice = typeof state.markPrice === 'string' ? 
+                state.markPrice.replace(/[^0-9.-]/g, '') : state.markPrice;
+            const cleanLiqPrice = typeof position.liquidationPrice === 'string' ? 
+                position.liquidationPrice.replace(/[^0-9.-]/g, '') : position.liquidationPrice;
+            
+            const pnl = new Decimal(cleanPnL || 0);
             const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'pnl-positive' : (pnl.isNegative() ? 'pnl-negative' : '');
-            const roe = new Decimal(position.roe);
+            const roe = new Decimal(cleanRoe || 0);
             const roeClass = roe.isPositive() && !roe.isZero() ? 'pnl-positive' : (roe.isNegative() ? 'pnl-negative' : '');
             const sideClass = position.side === 'long' ? 'side-long' : 'side-short';
             
             // Calculate distance to liquidation
-            const currentPrice = new Decimal(state.markPrice);
-            const liquidationPrice = new Decimal(position.liquidationPrice);
+            const currentPrice = new Decimal(cleanMarkPrice);
+            const liquidationPrice = new Decimal(cleanLiqPrice);
             const distanceToLiq = currentPrice.minus(liquidationPrice).abs();
             const distancePercent = distanceToLiq.div(currentPrice).times(100);
             
@@ -566,8 +939,15 @@
             orders.forEach(order => {
                 const sideClass = order.side === 'buy' ? 'side-long' : 'side-short';
                 const statusClass = order.status.toLowerCase().replace('_', '-');
-                const filledPercent = new Decimal(order.filledSize).div(order.originalSize).times(100);
-                const remainingSize = new Decimal(order.originalSize).minus(order.filledSize);
+                
+                // Clean order data before creating Decimals
+                const cleanFilledSize = typeof order.filledSize === 'string' ? 
+                    order.filledSize.replace(/[^0-9.-]/g, '') : order.filledSize;
+                const cleanOriginalSize = typeof order.originalSize === 'string' ? 
+                    order.originalSize.replace(/[^0-9.-]/g, '') : order.originalSize;
+                
+                const filledPercent = new Decimal(cleanFilledSize || 0).div(cleanOriginalSize || 1).times(100);
+                const remainingSize = new Decimal(cleanOriginalSize || 0).minus(cleanFilledSize || 0);
                 
                 const row = document.createElement('tr');
                 row.className = `order-row ${statusClass}`;
@@ -594,7 +974,10 @@
             const balanceEl = document.getElementById('insuranceFundBalance');
             
             if (insuranceFund) {
-                const balance = new Decimal(insuranceFund.balance);
+                // Clean insurance fund balance before creating Decimal
+                const cleanBalance = typeof insuranceFund.balance === 'string' ? 
+                    insuranceFund.balance.replace(/[^0-9.-]/g, '') : insuranceFund.balance;
+                const balance = new Decimal(cleanBalance || 0);
                 balanceEl.textContent = `$${balance.toDP(0).toNumber().toLocaleString('en-US', {maximumFractionDigits: 0})}`;
                 
                 if (insuranceFund.isAtRisk) {
@@ -620,14 +1003,18 @@
             queue.forEach(item => {
                 const el = document.createElement('div');
                 el.className = 'adl-item';
-                const pnl = new Decimal(item.unrealizedPnL);
+                
+                // Clean ADL item data before creating Decimals
+                const cleanPnL = typeof item.unrealizedPnL === 'string' ? 
+                    item.unrealizedPnL.replace(/[^0-9.-]/g, '') : item.unrealizedPnL;
+                const pnl = new Decimal(cleanPnL || 0);
                 const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'pnl-positive' : 'pnl-negative';
                 
                 const lights = '●'.repeat(item.adlIndicator) + '<span class="lights-off">' + '●'.repeat(5 - item.adlIndicator) + '</span>';
 
                 el.innerHTML = `
                     <span>${item.userId}</span>
-                    <span class="adl-pnl ${pnlClass}">$${new Decimal(pnl).toFixed(2)}</span>
+                    <span class="adl-pnl ${pnlClass}">$${pnl.toFixed(2)}</span>
                     <span class="adl-lights">${lights}</span>
                 `;
                 container.appendChild(el);
@@ -636,8 +1023,11 @@
 
         function updateMarginInfo() {
             try {
-                const size = document.getElementById('orderSize').value;
-                const price = document.getElementById('orderPrice').value || state.markPrice;
+                const sizeInput = document.getElementById('orderSize');
+                const priceInput = document.getElementById('orderPrice');
+                
+                const size = sizeInput.getRawValue ? sizeInput.getRawValue() : parseNumberInput(sizeInput.value);
+                const price = priceInput.getRawValue ? priceInput.getRawValue() : parseNumberInput(priceInput.value) || state.markPrice;
                 const leverage = document.getElementById('leverage').value;
                 
                 if (!size || !price || !leverage || parseFloat(size) <= 0) {
@@ -645,9 +1035,14 @@
                     return;
                 }
                 
-                const marginRequired = new Decimal(size).times(price).dividedBy(leverage);
+                // Clean the values before creating Decimals
+                const cleanSize = typeof size === 'string' ? size.replace(/[^0-9.-]/g, '') : size;
+                const cleanPrice = typeof price === 'string' ? price.replace(/[^0-9.-]/g, '') : price;
+                
+                const marginRequired = new Decimal(cleanSize).times(cleanPrice).dividedBy(leverage);
                 document.getElementById('marginInfo').textContent = `Margin Required: $${marginRequired.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             } catch(e) {
+                console.error('Error calculating margin info:', e);
                 document.getElementById('marginInfo').textContent = 'Margin Required: Error';
             }
         }
@@ -672,19 +1067,144 @@
                 aggressivePrice = orderBook?.bids?.length > 0 ? orderBook.bids[0].price : state.markPrice;
             }
             if (aggressivePrice) {
-                 priceInput.value = new Decimal(aggressivePrice).toFixed(2);
+                const formattedPrice = formatNumberInput(aggressivePrice, 'price');
+                priceInput.value = formattedPrice;
             }
+        }
+
+        function updateLiquidationEngine() {
+            if (!state.positionLiquidationEngine) return;
+
+            const leData = state.positionLiquidationEngine;
+            const summary = leData.summary;
+            const positions = leData.positions;
+
+            // Update summary statistics
+            document.getElementById('lePositionCount').textContent = summary.totalPositions || 0;
+            
+            // Clean liquidation engine data before creating Decimals
+            const cleanTotalPnL = typeof summary.totalUnrealizedPnL === 'string' ? 
+                summary.totalUnrealizedPnL.replace(/[^0-9.-]/g, '') : summary.totalUnrealizedPnL;
+            const cleanExposure = typeof leData.insuranceFundSufficiency.exposure === 'string' ? 
+                leData.insuranceFundSufficiency.exposure.replace(/[^0-9.-]/g, '') : leData.insuranceFundSufficiency.exposure;
+            
+            const totalPnL = new Decimal(cleanTotalPnL || 0);
+            const pnlClass = totalPnL.isPositive() && !totalPnL.isZero() ? 'le-pnl-positive' : 
+                           (totalPnL.isNegative() ? 'le-pnl-negative' : '');
+            document.getElementById('leTotalPnL').textContent = `$${formatPrice(summary.totalUnrealizedPnL || 0)}`;
+            document.getElementById('leTotalPnL').className = `stat-value ${pnlClass}`;
+
+            const exposure = new Decimal(cleanExposure || 0);
+            const exposureClass = exposure.isPositive() ? 'le-pnl-negative' : '';
+            document.getElementById('leIfExposure').textContent = `$${formatPrice(leData.insuranceFundSufficiency.exposure || 0)}`;
+            document.getElementById('leIfExposure').className = `stat-value ${exposureClass}`;
+
+            // Update positions table
+            const container = document.getElementById('liquidationEnginePositions');
+            container.innerHTML = '';
+
+            if (!positions || positions.length === 0) {
+                container.innerHTML = '<tr class="no-data-row"><td colspan="7" class="no-positions">No liquidation positions</td></tr>';
+                
+                // Disable control buttons
+                document.getElementById('orderbookBtn').disabled = true;
+                document.getElementById('adlBtn').disabled = true;
+                document.getElementById('forceBtn').disabled = true;
+                document.getElementById('liquidationStatus').textContent = 'No positions to liquidate';
+            } else {
+                // Enable control buttons
+                document.getElementById('orderbookBtn').disabled = false;
+                document.getElementById('adlBtn').disabled = false;
+                document.getElementById('forceBtn').disabled = false;
+                document.getElementById('liquidationStatus').textContent = `${positions.length} position(s) ready for liquidation`;
+
+                positions.forEach(position => {
+                    // Clean position data before creating Decimal
+                    const cleanPositionPnL = typeof position.unrealizedPnL === 'string' ? 
+                        position.unrealizedPnL.replace(/[^0-9.-]/g, '') : position.unrealizedPnL;
+                    const pnl = new Decimal(cleanPositionPnL || 0);
+                    const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'le-pnl-positive' : 
+                                   (pnl.isNegative() ? 'le-pnl-negative' : '');
+                    const sideClass = position.side === 'long' ? 'le-side-long' : 'le-side-short';
+                    const statusClass = `le-status-${position.status}`;
+                    
+                    const timeSince = Math.floor((Date.now() - position.transferTime) / 1000);
+                    const timeDisplay = timeSince < 60 ? `${timeSince}s` : 
+                                       timeSince < 3600 ? `${Math.floor(timeSince / 60)}m` : 
+                                       `${Math.floor(timeSince / 3600)}h`;
+
+                    const row = document.createElement('tr');
+                    row.className = 'position-row';
+                    row.innerHTML = `
+                        <td class="side-cell ${sideClass}">${position.side.toUpperCase()}</td>
+                        <td class="size-cell">${formatBTCAmount(position.size)}</td>
+                        <td class="price-cell">$${formatPrice(position.entryPrice)}</td>
+                        <td class="mark-price-cell">$${formatPrice(state.markPrice)}</td>
+                        <td class="pnl-cell ${pnlClass}">$${formatPrice(position.unrealizedPnL)}</td>
+                        <td class="status-cell ${statusClass}">${position.status.replace('_', ' ')}</td>
+                        <td class="time-cell">${timeDisplay}</td>
+                    `;
+                    container.appendChild(row);
+                });
+            }
+
+            // Update zero-sum check status
+            const zeroSumCheck = leData.zeroSumCheck;
+            if (!zeroSumCheck.isBalanced) {
+                console.warn('Zero-sum invariant violated!', zeroSumCheck);
+            }
+        }
+
+        function executeLiquidationStep(method) {
+            const leData = state.positionLiquidationEngine;
+            if (!leData || !leData.positions || leData.positions.length === 0) {
+                showError('No positions to liquidate');
+                return;
+            }
+
+            const confirmMessage = method === 'orderbook' ? 'Try to liquidate via order book?' :
+                                 method === 'adl' ? 'Execute ADL liquidation?' :
+                                 'Force close all positions?';
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            // Update status
+            document.getElementById('liquidationStatus').textContent = `Executing ${method} liquidation...`;
+            
+            // Disable buttons temporarily
+            document.getElementById('orderbookBtn').disabled = true;
+            document.getElementById('adlBtn').disabled = true;
+            document.getElementById('forceBtn').disabled = true;
+
+            // Send liquidation command to server
+            ws.send(JSON.stringify({
+                type: 'liquidation_step',
+                method: method
+            }));
+
+            // Re-enable buttons after a delay (in case no response)
+            setTimeout(() => {
+                document.getElementById('orderbookBtn').disabled = false;
+                document.getElementById('adlBtn').disabled = false;
+                document.getElementById('forceBtn').disabled = false;
+            }, 3000);
         }
 
         // --- Event Listeners ---
         document.getElementById('orderForm').addEventListener('submit', (e) => {
             e.preventDefault();
+            
+            const sizeInput = document.getElementById('orderSize');
+            const priceInput = document.getElementById('orderPrice');
+            
             const order = {
                 type: 'place_order',
                 userId: currentUser,
                 side: document.querySelector('.btn-side.active').dataset.side,
-                size: document.getElementById('orderSize').value,
-                price: document.getElementById('orderPrice').value,
+                size: sizeInput.getRawValue ? sizeInput.getRawValue() : parseNumberInput(sizeInput.value),
+                price: priceInput.getRawValue ? priceInput.getRawValue() : parseNumberInput(priceInput.value),
                 orderType: document.getElementById('orderType').value,
                 leverage: parseInt(document.getElementById('leverage').value)
             };
@@ -716,13 +1236,30 @@
              ws.send(JSON.stringify({ type: 'update_leverage', userId: currentUser, leverage: parseInt(document.getElementById('leverage').value) }));
         });
 
+        function setSide(side) {
+            // Update side buttons
+            document.querySelectorAll('.btn-side').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.btn-side[data-side="${side}"]`).classList.add('active');
+            
+            // Update order button text and style
+            document.getElementById('placeOrderBtn').textContent = `Place ${side.charAt(0).toUpperCase() + side.slice(1)} Order`;
+            document.getElementById('placeOrderBtn').className = `btn-primary ${side}`;
+            
+            // Update aggressive price if in limit mode
+            updateAggressivePrice();
+        }
+
         function setPrice(price) {
-            document.getElementById('orderPrice').value = new Decimal(price).toFixed(2);
+            const priceInput = document.getElementById('orderPrice');
+            const formattedPrice = formatNumberInput(price, 'price');
+            priceInput.value = formattedPrice;
             updateMarginInfo();
         }
 
         function setSize(size) {
-            document.getElementById('orderSize').value = formatBTCAmount(size);
+            const sizeInput = document.getElementById('orderSize');
+            const formattedSize = formatNumberInput(size, 'btc');
+            sizeInput.value = formattedSize;
             updateMarginInfo();
         }
 
@@ -731,10 +1268,39 @@
         }
 
         function updateMarkPrice() {
-            const price = document.getElementById('newMarkPrice').value;
+            const priceInput = document.getElementById('newMarkPrice');
+            const price = priceInput.getRawValue ? priceInput.getRawValue() : parseNumberInput(priceInput.value);
             if (price) {
                 ws.send(JSON.stringify({ type: 'update_mark_price', price: parseFloat(price) }));
+                // Don't clear the input - user may want to update multiple times
             }
+        }
+
+        function adjustMarkPrice(percentageChange) {
+            const priceInput = document.getElementById('newMarkPrice');
+            let currentPrice;
+            
+            // Get current price from input, or use current mark price if input is empty
+            const inputValue = priceInput.getRawValue ? priceInput.getRawValue() : parseNumberInput(priceInput.value);
+            if (inputValue && inputValue !== '') {
+                currentPrice = parseFloat(inputValue);
+            } else if (state && state.markPrice) {
+                currentPrice = parseFloat(state.markPrice);
+            } else {
+                showError('No price available to adjust');
+                return;
+            }
+            
+            // Calculate new price with percentage adjustment
+            const adjustment = currentPrice * (percentageChange / 100);
+            const newPrice = currentPrice + adjustment;
+            
+            // Update the input with the new price
+            const formattedPrice = formatNumberInput(newPrice, 'price');
+            priceInput.value = formattedPrice;
+            
+            // Automatically send the update
+            ws.send(JSON.stringify({ type: 'update_mark_price', price: newPrice }));
         }
 
         function showError(message) {
@@ -750,6 +1316,26 @@
         // Initial setup
         document.querySelector(`.user-tab[data-user="${currentUser}"]`).classList.add('active');
         document.getElementById('currentUser').textContent = 'Bob';
+        
+        // Initialize input formatting
+        document.addEventListener('DOMContentLoaded', function() {
+            setupInputFormatting('orderSize', 'btc');
+            setupInputFormatting('orderPrice', 'price');
+            setupInputFormatting('newMarkPrice', 'price');
+        });
+        
+        // Setup input formatting immediately if DOM is already loaded
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                setupInputFormatting('orderSize', 'btc');
+                setupInputFormatting('orderPrice', 'price');
+                setupInputFormatting('newMarkPrice', 'price');
+            });
+        } else {
+            setupInputFormatting('orderSize', 'btc');
+            setupInputFormatting('orderPrice', 'price');
+            setupInputFormatting('newMarkPrice', 'price');
+        }
 
     </script>
 </body>

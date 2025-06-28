@@ -11,6 +11,12 @@ class LiquidationEngine {
     this.liquidationQueue = [];
     this.isProcessingQueue = false;
     
+    // Log initial insurance fund balance
+    console.log('🏛️'.repeat(20));
+    console.log('🏛️ INSURANCE FUND INITIALIZED');
+    console.log(`🏛️ INITIAL BALANCE: $${this.insuranceFund.toLocaleString()}`);
+    console.log('🏛️'.repeat(20));
+    
     // Insurance fund history tracking
     this.insuranceFundHistory = [{
       timestamp: Date.now(),
@@ -25,7 +31,20 @@ class LiquidationEngine {
   manualAdjustment(amount, description) {
     const decAmount = new Decimal(amount);
     const type = decAmount.isPositive() ? 'deposit' : 'withdrawal';
+    const oldBalance = this.insuranceFund;
+    
+    console.log('🔧'.repeat(25));
+    console.log('🔧 MANUAL INSURANCE FUND ADJUSTMENT');
+    console.log('🔧'.repeat(25));
+    console.log(`📊 Current balance: $${oldBalance.toLocaleString()}`);
+    console.log(`🔄 ${type.toUpperCase()}: $${decAmount.abs().toLocaleString()}`);
+    console.log(`📝 Reason: ${description || 'Manual fund adjustment'}`);
+    
     this.insuranceFund = this.insuranceFund.plus(decAmount);
+    
+    console.log(`📊 New balance: $${this.insuranceFund.toLocaleString()}`);
+    console.log(`📈 Net change: $${decAmount.toLocaleString()}`);
+    console.log('🔧'.repeat(25));
 
     this.recordInsuranceFundChange({
       type: `manual_${type}`,
@@ -34,7 +53,6 @@ class LiquidationEngine {
       description: description || 'Manual fund adjustment'
     });
     
-    console.log(`Manual insurance fund adjustment: ${type} of $${decAmount.abs()}. New balance: $${this.insuranceFund}`);
     return { success: true, newBalance: this.insuranceFund.toString() };
   }
 
@@ -81,9 +99,25 @@ class LiquidationEngine {
 
   // NEW: Real liquidation with market order execution
   async liquidate(position, currentPrice, allPositions, forceMode = false) {
+    console.log('='.repeat(60));
+    console.log(`🔥 STARTING LIQUIDATION PROCESS for ${position.userId}`);
+    console.log('='.repeat(60));
+    
     const decCurrentPrice = new Decimal(currentPrice);
     const liquidationFee = position.size.times(decCurrentPrice).times(this.liquidationFeeRate);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
+    
+    console.log(`📊 LIQUIDATION DETAILS:`, {
+      userId: position.userId,
+      positionSide: position.side,
+      positionSize: position.size.toString(),
+      entryPrice: position.avgEntryPrice.toString(),
+      currentPrice: decCurrentPrice.toString(),
+      bankruptcyPrice: bankruptcyPrice.toString(),
+      initialMargin: position.initialMargin.toString(),
+      unrealizedPnL: position.unrealizedPnL.toString(),
+      forceMode
+    });
     
     let preLiquidationLoss;
     if (position.side === 'long') {
@@ -91,6 +125,24 @@ class LiquidationEngine {
     } else {
       preLiquidationLoss = Decimal.max(0, decCurrentPrice.minus(position.avgEntryPrice).times(position.size));
     }
+    
+    console.log(`💸 Pre-liquidation loss: $${preLiquidationLoss.toString()}`);
+    console.log(`🏛️ Current insurance fund balance: $${this.insuranceFund.toString()}`);
+    
+    // Check if this will break zero-sum invariant
+    const currentTotalLong = Array.from(allPositions.values())
+      .filter(p => p.side === 'long')
+      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
+    const currentTotalShort = Array.from(allPositions.values())
+      .filter(p => p.side === 'short')
+      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
+      
+    console.log(`📊 PRE-LIQUIDATION ZERO-SUM CHECK:`, {
+      totalLong: currentTotalLong.toString(),
+      totalShort: currentTotalShort.toString(),
+      difference: currentTotalLong.minus(currentTotalShort).toString(),
+      aboutToLiquidate: `${position.side} ${position.size.toString()}`
+    });
 
     let liquidationResult = {
       positionId: position.userId,
@@ -114,18 +166,33 @@ class LiquidationEngine {
 
     try {
       if (this.matchingEngine && this.orderBook && !forceMode) {
+        console.log(`📋 ATTEMPTING LIQUIDATION VIA ORDER BOOK`);
         liquidationResult = await this.executeRealLiquidation(position, liquidationResult);
       } else {
+        console.log(`📋 USING FALLBACK LIQUIDATION MODE (forceMode: ${forceMode})`);
         liquidationResult = this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
       }
 
+      console.log(`📋 LIQUIDATION METHOD RESULT:`, {
+        method: liquidationResult.method,
+        totalExecuted: liquidationResult.totalExecuted.toString(),
+        executionPrice: liquidationResult.executionPrice.toString(),
+        fills: liquidationResult.fills.length
+      });
+
+      console.log(`🏛️ UPDATING INSURANCE FUND...`);
       this.updateInsuranceFund(liquidationResult, allPositions);
 
+      console.log(`✅ LIQUIDATION PROCESS COMPLETED for ${position.userId}`);
+      console.log('='.repeat(60));
       return liquidationResult;
 
     } catch (error) {
-      console.error(`Liquidation failed for ${position.userId}:`, error);
-      return this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
+      console.error(`❌ Liquidation failed for ${position.userId}:`, error);
+      console.log(`🔄 FALLING BACK TO MARK PRICE LIQUIDATION`);
+      const fallbackResult = this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
+      this.updateInsuranceFund(fallbackResult, allPositions);
+      return fallbackResult;
     }
   }
 
@@ -185,9 +252,21 @@ class LiquidationEngine {
   }
 
   executeFallbackLiquidation(position, currentPrice, liquidationResult) {
+    console.log(`🚨 EXECUTING FALLBACK LIQUIDATION (Insurance Fund Mode)`);
+    console.log(`   This is where the position might "disappear" - we need to track this carefully!`);
+    
     const decCurrentPrice = new Decimal(currentPrice);
     const positionValue = position.size.times(decCurrentPrice);
     const liquidationFee = positionValue.times(this.liquidationFeeRate);
+    
+    console.log(`💼 FALLBACK LIQUIDATION CALCULATION:`, {
+      positionSide: position.side,
+      positionSize: position.size.toString(),
+      entryPrice: position.avgEntryPrice.toString(),
+      liquidationPrice: decCurrentPrice.toString(),
+      positionValue: positionValue.toString(),
+      liquidationFee: liquidationFee.toString()
+    });
     
     let totalLoss;
     if (position.side === 'long') {
@@ -195,6 +274,10 @@ class LiquidationEngine {
     } else {
       totalLoss = Decimal.max(0, decCurrentPrice.minus(position.avgEntryPrice).times(position.size));
     }
+    
+    console.log(`💸 CALCULATED LOSS: $${totalLoss.toString()}`);
+    console.log(`⚠️  CRITICAL: Position of ${position.side} ${position.size.toString()} BTC will be REMOVED from the system`);
+    console.log(`⚠️  CRITICAL: This breaks zero-sum invariant unless position is transferred to liquidation engine!`);
     
     liquidationResult.method = 'mark_price';
     liquidationResult.totalExecuted = position.size;
@@ -205,11 +288,34 @@ class LiquidationEngine {
   }
 
   updateInsuranceFund(liquidationResult, allPositions) {
+    console.log(`💰 INSURANCE FUND UPDATE PROCESS STARTING`);
     const { remainingBalance, liquidationFee, totalExecuted, executionPrice, side, entryPrice, initialMargin, userId, bankruptcyPrice } = liquidationResult;
     
-    console.log(`Updating insurance fund - Liquidation fee: $${liquidationFee.toFixed(2)}, totalExecuted: ${totalExecuted}, remainingBalance: $${remainingBalance.toFixed(2)}`);
+    console.log(`📊 INSURANCE FUND UPDATE INPUTS:`, {
+      userId,
+      side,
+      totalExecuted: totalExecuted.toString(),
+      executionPrice: executionPrice.toString(),
+      entryPrice: entryPrice.toString(),
+      liquidationFee: liquidationFee.toString(),
+      remainingBalance: remainingBalance.toString(),
+      initialMargin: (initialMargin || 0).toString(),
+      currentInsuranceFund: this.insuranceFund.toString()
+    });
     
+    // STEP 1: Collect liquidation fee (this is profit for insurance fund)
+    console.log(`📈 STEP 1: Adding liquidation fee to insurance fund`);
+    console.log(`   Fee amount: $${liquidationFee.toString()}`);
+    console.log(`   Fund before: $${this.insuranceFund.toString()}`);
+    
+    const oldFundBalance = this.insuranceFund;
     this.insuranceFund = this.insuranceFund.plus(liquidationFee);
+    
+    console.log('💰💰💰 INSURANCE FUND INCREASE 💰💰💰');
+    console.log(`💰 BEFORE: $${oldFundBalance.toLocaleString()}`);
+    console.log(`💰 FEE COLLECTED: +$${liquidationFee.toLocaleString()}`);
+    console.log(`💰 AFTER: $${this.insuranceFund.toLocaleString()}`);
+    console.log('💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰');
     
     this.recordInsuranceFundChange({
       type: 'liquidation_fee',
@@ -218,9 +324,13 @@ class LiquidationEngine {
       description: `Liquidation fee from ${userId}`
     });
     
-    console.log(`Insurance fund gains fee: $${liquidationFee.toFixed(2)}, new balance: $${this.insuranceFund.toString()}`);
+    // STEP 2: Check if user's margin is exhausted (bankruptcy situation)
+    console.log(`📉 STEP 2: Checking if user is bankrupt (remainingBalance = 0)`);
+    console.log(`   Remaining balance: $${remainingBalance.toString()}`);
     
     if (remainingBalance.isZero()) {
+      console.log(`🚨 USER IS BANKRUPT - Insurance fund must cover losses beyond margin`);
+      console.log(`⚠️  CRITICAL MOMENT: This is where the accounting gets tricky!`);
       const bankruptPosition = { side, avgEntryPrice: bankruptcyPrice };
       let actualLoss;
       if (side === 'long') {
@@ -229,60 +339,180 @@ class LiquidationEngine {
         actualLoss = Decimal.max(0, new Decimal(executionPrice).minus(entryPrice).times(totalExecuted));
       }
       
-      console.log(`User balance is zero - actualLoss: $${actualLoss.toFixed(2)}, initialMargin: $${(initialMargin || 0).toFixed(2)}`);
+      console.log(`💸 BANKRUPTCY LOSS CALCULATION:`, {
+        entryPrice: entryPrice.toString(),
+        executionPrice: executionPrice.toString(),
+        totalExecuted: totalExecuted.toString(),
+        actualLoss: actualLoss.toString(),
+        initialMargin: (initialMargin || 0).toString()
+      });
       
       const decInitialMargin = new Decimal(initialMargin || 0);
+      console.log(`🔍 CHECKING IF LOSS EXCEEDS MARGIN:`);
+      console.log(`   Actual loss: $${actualLoss.toString()}`);
+      console.log(`   Initial margin: $${decInitialMargin.toString()}`);
+      console.log(`   Loss > Margin: ${actualLoss.greaterThan(decInitialMargin)}`);
+      
       if (actualLoss.greaterThan(decInitialMargin)) {
         const shortfall = actualLoss.minus(decInitialMargin);
+        console.log(`💔 SHORTFALL DETECTED: $${shortfall.toString()}`);
+        console.log(`⚠️  This shortfall must be covered by insurance fund or ADL`);
+        console.log(`⚠️  THE LIQUIDATED POSITION STILL EXISTS SOMEWHERE - where does it go?`);
         
         if (this.insuranceFund.gte(shortfall)) {
+          console.log(`✅ INSURANCE FUND CAN COVER SHORTFALL`);
+          console.log(`   Fund balance: $${this.insuranceFund.toString()}`);
+          console.log(`   Shortfall: $${shortfall.toString()}`);
+          console.log(`   🚨 BUT WAIT: What happens to the liquidated position itself?`);
           // Insurance fund can cover the entire loss
+          const fundBeforePayout = this.insuranceFund;
           this.insuranceFund = this.insuranceFund.minus(shortfall);
           liquidationResult.insuranceFundLoss = shortfall;
+          
+          console.log('🔥🔥🔥 INSURANCE FUND DECREASE 🔥🔥🔥');
+          console.log(`🔥 BEFORE: $${fundBeforePayout.toLocaleString()}`);
+          console.log(`🔥 BANKRUPTCY PAYOUT: -$${shortfall.toLocaleString()}`);
+          console.log(`🔥 AFTER: $${this.insuranceFund.toLocaleString()}`);
+          console.log(`🔥 REASON: User ${userId} bankrupt - covering shortfall`);
+          console.log(`🚨 CRITICAL QUESTION: What happened to the ${side} ${totalExecuted.toString()} BTC position?`);
+          console.log(`🚨 If it just disappeared, we broke long = short invariant!`);
+          console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
           
           this.recordInsuranceFundChange({
             type: 'bankruptcy_payout',
             amount: shortfall.negated(),
             balance: this.insuranceFund,
-            description: `Bankruptcy coverage for ${userId}. Shortfall: $${shortfall.toFixed(2)}`
+            description: `Bankruptcy coverage for ${userId}. Shortfall: $${shortfall.toString()}`
           });
           
         } else {
           // Insurance fund is insufficient, trigger ADL
+          console.log(`❌ INSURANCE FUND INSUFFICIENT FOR SHORTFALL`);
           const insurancePayout = this.insuranceFund;
           const adlAmount = shortfall.minus(insurancePayout);
           
+          console.log(`🔥 TRIGGERING ADL MECHANISM`);
+          console.log(`   Fund balance: $${this.insuranceFund.toString()}`);
+          console.log(`   Required: $${shortfall.toString()}`);
+          console.log(`   Fund will pay: $${insurancePayout.toString()}`);
+          console.log(`   ADL must cover: $${adlAmount.toString()}`);
+          
+          const fundBeforeDraining = this.insuranceFund;
           this.insuranceFund = new Decimal(0);
           liquidationResult.insuranceFundLoss = insurancePayout;
+          
+          console.log('💀💀💀 INSURANCE FUND DRAINED 💀💀💀');
+          console.log(`💀 BEFORE: $${fundBeforeDraining.toLocaleString()}`);
+          console.log(`💀 FINAL PAYOUT: -$${insurancePayout.toLocaleString()}`);
+          console.log(`💀 AFTER: $${this.insuranceFund.toLocaleString()} (DRAINED!)`);
+          console.log(`💀 REASON: User ${userId} bankrupt - fund insufficient`);
+          console.log(`💀 ADL REQUIRED FOR: $${adlAmount.toLocaleString()}`);
+          console.log('💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀');
           
           this.recordInsuranceFundChange({
             type: 'bankruptcy_payout_drained',
             amount: insurancePayout.negated(),
             balance: this.insuranceFund,
-            description: `Insurance fund drained for ${userId}. Payout: $${insurancePayout.toFixed(2)}, ADL required for $${adlAmount.toFixed(2)}`
+            description: `Insurance fund drained for ${userId}. Payout: $${insurancePayout.toString()}, ADL required for $${adlAmount.toString()}`
           });
           
           if (this.adlEngine) {
-            console.log(`ADL triggered for shortfall of $${adlAmount.toFixed(2)}`);
+            console.log(`🔄 EXECUTING ADL for shortfall of $${adlAmount.toString()}`);
+            console.log(`⚠️  ADL should transfer the liquidated position to ADL participants`);
             const adlResult = this.adlEngine.executeADL(allPositions, adlAmount, bankruptPosition);
             liquidationResult.adlResult = adlResult;
           } else {
-            console.error("ADL Engine not available! System is at risk.");
+            console.error("❌ ADL Engine not available! System is at risk.");
+            console.error("🚨 This means positions will disappear and break zero-sum invariant!");
             // In a real system, this would be a critical alert
           }
         }
+      } else {
+        console.log(`✅ User margin covers all losses - no insurance fund payout needed`);
       }
+    } else {
+      console.log(`✅ User has remaining balance - no bankruptcy situation`);
     }
     
+    // FINAL STEP: Record the liquidation event
+    console.log(`📝 RECORDING LIQUIDATION EVENT`);
     this.recordLiquidationEvent(liquidationResult);
+    
+    // CRITICAL: Check what happened to zero-sum invariant
+    console.log(`🔍 POST-LIQUIDATION ZERO-SUM ANALYSIS:`);
+    const postLiquidationLong = Array.from(allPositions.values())
+      .filter(p => p.side === 'long')
+      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
+    const postLiquidationShort = Array.from(allPositions.values())
+      .filter(p => p.side === 'short')
+      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
+    
+    console.log(`   Total long after liquidation: ${postLiquidationLong.toString()}`);
+    console.log(`   Total short after liquidation: ${postLiquidationShort.toString()}`);
+    console.log(`   Difference: ${postLiquidationLong.minus(postLiquidationShort).toString()}`);
+    console.log(`   Liquidated position (${side} ${totalExecuted.toString()}) was REMOVED from system`);
+    
+    if (!postLiquidationLong.equals(postLiquidationShort)) {
+      console.log(`🚨🚨🚨 ZERO-SUM INVARIANT VIOLATED! 🚨🚨🚨`);
+      console.log(`   This confirms the position disappeared instead of being transferred!`);
+    }
+    
+    // FINAL INSURANCE FUND STATUS SUMMARY
+    console.log('🏛️'.repeat(25));
+    console.log('🏛️ INSURANCE FUND FINAL STATUS');
+    console.log('🏛️'.repeat(25));
+    console.log(`💰 FINAL BALANCE: $${this.insuranceFund.toLocaleString()}`);
+    
+    const fundHealthStatus = this.insuranceFund.greaterThan(500000) ? 'HEALTHY' : 
+                           this.insuranceFund.greaterThan(100000) ? 'CAUTION' :
+                           this.insuranceFund.greaterThan(0) ? 'CRITICAL' : 'DRAINED';
+    
+    console.log(`📊 FUND STATUS: ${fundHealthStatus}`);
+    console.log(`📈 NET CHANGE THIS LIQUIDATION: ${liquidationFee.minus(liquidationResult.insuranceFundLoss || 0).toLocaleString()}`);
+    console.log(`🔢 TOTAL HISTORY ENTRIES: ${this.insuranceFundHistory.length}`);
+    console.log('🏛️'.repeat(25));
+    
+    console.log(`💰 INSURANCE FUND UPDATE COMPLETED`);
   }
 
   // Record insurance fund balance changes
   recordInsuranceFundChange(change) {
-    this.insuranceFundHistory.push({
-      timestamp: Date.now(),
+    const timestamp = Date.now();
+    const changeRecord = {
+      timestamp,
       ...change
-    });
+    };
+    
+    this.insuranceFundHistory.push(changeRecord);
+    
+    // PROMINENT INSURANCE FUND LOGGING
+    console.log('💰'.repeat(30));
+    console.log('🏛️  INSURANCE FUND BALANCE CHANGE  🏛️');
+    console.log('💰'.repeat(30));
+    console.log(`📅 Time: ${new Date(timestamp).toISOString()}`);
+    console.log(`📋 Type: ${change.type.toUpperCase()}`);
+    console.log(`📝 Description: ${change.description}`);
+    
+    if (change.amount.isPositive()) {
+      console.log(`📈 FUND INCREASE: +$${change.amount.toLocaleString()}`);
+    } else if (change.amount.isNegative()) {
+      console.log(`📉 FUND DECREASE: $${change.amount.toLocaleString()}`);
+    } else {
+      console.log(`⚪ NO CHANGE: $${change.amount.toLocaleString()}`);
+    }
+    
+    console.log(`🏛️  NEW BALANCE: $${change.balance.toLocaleString()}`);
+    
+    // Risk assessment
+    if (change.balance.lessThan(100000)) {
+      console.log(`🚨 WARNING: Insurance fund below $100k!`);
+    } else if (change.balance.lessThan(500000)) {
+      console.log(`⚠️  CAUTION: Insurance fund below $500k`);
+    } else {
+      console.log(`✅ Fund status: Healthy`);
+    }
+    
+    console.log('💰'.repeat(30));
   }
 
   // Record detailed liquidation events
@@ -294,6 +524,12 @@ class LiquidationEngine {
         sanitizedResult[key] = sanitizedResult[key].toString();
       }
     }
+    
+    // Calculate net insurance fund impact (fees gained - losses paid out)
+    const liquidationFee = new Decimal(sanitizedResult.liquidationFee || 0);
+    const insuranceFundLoss = new Decimal(sanitizedResult.insuranceFundLoss || 0);
+    sanitizedResult.netInsuranceFundImpact = liquidationFee.minus(insuranceFundLoss).toString();
+    
     this.liquidationHistory.push(sanitizedResult);
   }
 
@@ -463,6 +699,13 @@ class LiquidationEngine {
     const totalGrowth = this.insuranceFund.minus(initialBalance);
     const growthPercentage = initialBalance.isZero() ? new Decimal(0) : totalGrowth.dividedBy(initialBalance).times(100);
 
+    // Calculate additional fields with proper Decimal arithmetic before converting to strings
+    const netOperationalGain = totalFees.minus(totalPayouts);
+    const averageFeePerLiquidation = this.liquidationHistory.length > 0 ? 
+      totalFees.dividedBy(this.liquidationHistory.length) : new Decimal(0);
+    const profitability = totalFees.greaterThan(0) ? 
+      netOperationalGain.dividedBy(totalFees).times(100) : new Decimal(0);
+
     const summary = {
       initialBalance: initialBalance.toString(),
       currentBalance: this.insuranceFund.toString(),
@@ -470,21 +713,19 @@ class LiquidationEngine {
       totalWithdrawals: totalWithdrawals.toString(),
       totalFeesCollected: totalFees.toString(),
       totalPayouts: totalPayouts.toString(),
-      netOperationalGain: totalFees.minus(totalPayouts).toString(),
+      netOperationalGain: netOperationalGain.toString(),
       totalLiquidations: this.liquidationHistory.length,
       sideBreakdown,
       totalGrowth: totalGrowth.toString(),
-      growthPercentage: growthPercentage.toString()
-    };
-    
-    // Additional fields expected by the frontend
-    summary.averageFeePerLiquidation = summary.totalLiquidations > 0 ? summary.totalFeesCollected / summary.totalLiquidations : 0;
-    summary.netGain = summary.netOperationalGain;
-    summary.profitability = summary.totalFeesCollected > 0 ? (summary.netGain / summary.totalFeesCollected) * 100 : 0;
-    summary.methodBreakdown = this.liquidationHistory.reduce((acc, liq) => {
+      growthPercentage: growthPercentage.toString(),
+      averageFeePerLiquidation: averageFeePerLiquidation.toString(),
+      netGain: netOperationalGain.toString(),
+      profitability: profitability.toString(),
+      methodBreakdown: this.liquidationHistory.reduce((acc, liq) => {
         acc[liq.method] = (acc[liq.method] || 0) + 1;
         return acc;
-    }, {});
+      }, {})
+    };
 
     return summary;
   }

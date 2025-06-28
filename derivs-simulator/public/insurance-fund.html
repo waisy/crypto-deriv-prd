@@ -417,13 +417,30 @@
 
         function updateSummaryCards() {
             const summary = insuranceFundData.summary;
+            
+            // Helper function to safely convert string to number and format
+            function formatNumber(value, decimals = 2) {
+                const num = parseFloat(value);
+                return isNaN(num) ? '0.00' : num.toFixed(decimals);
+            }
+            
+            function formatCurrency(value) {
+                const num = parseFloat(value);
+                return isNaN(num) ? '0' : num.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            }
+            
+            const totalGrowth = parseFloat(summary.totalGrowth);
+            const growthPercentage = parseFloat(summary.growthPercentage);
+            const netGain = parseFloat(summary.netGain);
+            const totalPayouts = parseFloat(summary.totalPayouts);
+            
             const summaryHtml = `
-                <div class="summary-card ${summary.totalGrowth >= 0 ? 'positive' : 'negative'}">
+                <div class="summary-card ${totalGrowth >= 0 ? 'positive' : 'negative'}">
                     <h3>Current Balance</h3>
-                    <div class="value">$${summary.currentBalance.toLocaleString()}</div>
-                    <div class="change ${summary.totalGrowth >= 0 ? 'positive' : 'negative'}">
-                        ${summary.totalGrowth >= 0 ? '+' : ''}$${summary.totalGrowth.toLocaleString()} 
-                        (${summary.growthPercentage >= 0 ? '+' : ''}${summary.growthPercentage.toFixed(2)}%)
+                    <div class="value">$${formatCurrency(summary.currentBalance)}</div>
+                    <div class="change ${totalGrowth >= 0 ? 'positive' : 'negative'}">
+                        ${totalGrowth >= 0 ? '+' : ''}$${formatCurrency(summary.totalGrowth)} 
+                        (${growthPercentage >= 0 ? '+' : ''}${formatNumber(summary.growthPercentage)}%)
                     </div>
                 </div>
                 <div class="summary-card">
@@ -433,18 +450,18 @@
                 </div>
                 <div class="summary-card positive">
                     <h3>Total Fees Collected</h3>
-                    <div class="value">$${summary.totalFeesCollected.toFixed(2)}</div>
-                    <div class="change">Avg: $${summary.averageFeePerLiquidation.toFixed(2)}/liquidation</div>
+                    <div class="value">$${formatCurrency(summary.totalFeesCollected)}</div>
+                    <div class="change">Avg: $${formatNumber(summary.averageFeePerLiquidation)}/liquidation</div>
                 </div>
-                <div class="summary-card ${summary.totalPayouts > 0 ? 'negative' : ''}">
+                <div class="summary-card ${totalPayouts > 0 ? 'negative' : ''}">
                     <h3>Total Payouts</h3>
-                    <div class="value">$${summary.totalPayouts.toFixed(2)}</div>
+                    <div class="value">$${formatCurrency(summary.totalPayouts)}</div>
                     <div class="change">Bankruptcy losses</div>
                 </div>
-                <div class="summary-card ${summary.netGain >= 0 ? 'positive' : 'negative'}">
+                <div class="summary-card ${netGain >= 0 ? 'positive' : 'negative'}">
                     <h3>Net Gain</h3>
-                    <div class="value">$${summary.netGain.toFixed(2)}</div>
-                    <div class="change">${summary.profitability.toFixed(1)}% profitability</div>
+                    <div class="value">$${formatCurrency(summary.netGain)}</div>
+                    <div class="change">${formatNumber(summary.profitability, 1)}% profitability</div>
                 </div>
                 <div class="summary-card">
                     <h3>Methods Used</h3>
@@ -466,17 +483,22 @@
                 return;
             }
 
-            const historyHtml = insuranceFundData.history.map(entry => `
-                <tr>
-                    <td>${new Date(entry.timestamp).toLocaleString()}</td>
-                    <td>${entry.type.replace('_', ' ')}</td>
-                    <td class="amount ${entry.amount >= 0 ? 'positive' : 'negative'}">
-                        ${entry.amount >= 0 ? '+' : ''}$${entry.amount.toFixed(2)}
-                    </td>
-                    <td>$${entry.balance.toLocaleString()}</td>
-                    <td>${entry.description}</td>
-                </tr>
-            `).join('');
+            const historyHtml = insuranceFundData.history.map(entry => {
+                const amount = parseFloat(entry.amount);
+                const balance = parseFloat(entry.balance);
+                
+                return `
+                    <tr>
+                        <td>${new Date(entry.timestamp).toLocaleString()}</td>
+                        <td>${entry.type.replace('_', ' ')}</td>
+                        <td class="amount ${amount >= 0 ? 'positive' : 'negative'}">
+                            ${amount >= 0 ? '+' : ''}$${amount.toFixed(2)}
+                        </td>
+                        <td>$${balance.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                        <td>${entry.description}</td>
+                    </tr>
+                `;
+            }).join('');
             
             tbody.innerHTML = historyHtml;
         }
@@ -488,27 +510,37 @@
                 return;
             }
 
-            const liquidationHtml = insuranceFundData.liquidations.map(liq => `
-                <tr class="liquidation-main-row">
-                    <td>${new Date(liq.timestamp).toLocaleString()}</td>
-                    <td><strong>${liq.userId}</strong></td>
-                    <td><span class="side-badge ${liq.side}">${liq.side}</span></td>
-                    <td>${liq.size} BTC</td>
-                    <td><span class="method-badge ${liq.method}">${liq.method.replace('_', ' ')}</span></td>
-                    <td class="amount positive">+$${liq.liquidationFee.toFixed(2)}</td>
-                    <td class="amount ${liq.netInsuranceFundImpact >= 0 ? 'positive' : 'negative'}">
-                        ${liq.netInsuranceFundImpact >= 0 ? '+' : ''}$${liq.netInsuranceFundImpact.toFixed(2)}
-                    </td>
-                </tr>
-                <tr class="liquidation-detail-row">
-                    <td colspan="7" class="liquidation-details">
-                        Entry: $${liq.entryPrice.toFixed(2)} → Execution: $${liq.executionPrice.toFixed(2)} 
-                        | Bankruptcy: $${liq.bankruptcyPrice.toFixed(2)} 
-                        | Remaining: $${liq.remainingBalance.toFixed(2)}
-                        ${liq.slippage > 0 ? ` | Slippage: ${(liq.slippage * 100).toFixed(2)}%` : ''}
-                    </td>
-                </tr>
-            `).join('');
+            const liquidationHtml = insuranceFundData.liquidations.map(liq => {
+                const liquidationFee = parseFloat(liq.liquidationFee || 0);
+                const netImpact = parseFloat(liq.netInsuranceFundImpact || 0);
+                const entryPrice = parseFloat(liq.entryPrice || 0);
+                const executionPrice = parseFloat(liq.executionPrice || 0);
+                const bankruptcyPrice = parseFloat(liq.bankruptcyPrice || 0);
+                const remainingBalance = parseFloat(liq.remainingBalance || 0);
+                const slippage = parseFloat(liq.slippage || 0);
+                
+                return `
+                    <tr class="liquidation-main-row">
+                        <td>${new Date(liq.timestamp).toLocaleString()}</td>
+                        <td><strong>${liq.userId}</strong></td>
+                        <td><span class="side-badge ${liq.side}">${liq.side}</span></td>
+                        <td>${parseFloat(liq.size || 0).toFixed(3)} BTC</td>
+                        <td><span class="method-badge ${liq.method}">${liq.method.replace('_', ' ')}</span></td>
+                        <td class="amount positive">+$${liquidationFee.toFixed(2)}</td>
+                        <td class="amount ${netImpact >= 0 ? 'positive' : 'negative'}">
+                            ${netImpact >= 0 ? '+' : ''}$${netImpact.toFixed(2)}
+                        </td>
+                    </tr>
+                    <tr class="liquidation-detail-row">
+                        <td colspan="7" class="liquidation-details">
+                            Entry: $${entryPrice.toFixed(2)} → Execution: $${executionPrice.toFixed(2)} 
+                            | Bankruptcy: $${bankruptcyPrice.toFixed(2)} 
+                            | Remaining: $${remainingBalance.toFixed(2)}
+                            ${slippage > 0 ? ` | Slippage: ${(slippage * 100).toFixed(2)}%` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
             
             tbody.innerHTML = liquidationHtml;
         }

@@ -1,3 +1,5 @@
+const { Decimal } = require('decimal.js');
+
 class ADLEngine {
   constructor() {
     this.adlTriggerThreshold = 50000; // Trigger ADL when insurance fund below $50k
@@ -5,17 +7,23 @@ class ADLEngine {
 
   // Calculate ADL score for position ranking
   calculateADLScore(position, userBalance, currentPrice) {
-    const positionValue = position.size * position.avgEntryPrice;
+    // Work with Decimal objects for precision
+    const size = new Decimal(position.size);
+    const avgEntryPrice = new Decimal(position.avgEntryPrice);
+    const unrealizedPnL = new Decimal(position.unrealizedPnL);
+    const userBal = new Decimal(userBalance);
+    
+    const positionValue = size.times(avgEntryPrice);
     
     // Unrealized profit percentage
-    const profitPercentage = position.unrealizedPnL / positionValue;
+    const profitPercentage = unrealizedPnL.dividedBy(positionValue);
     
     // Effective leverage
-    const totalEquity = userBalance + position.unrealizedPnL;
-    const effectiveLeverage = positionValue / totalEquity;
+    const totalEquity = userBal.plus(unrealizedPnL);
+    const effectiveLeverage = positionValue.dividedBy(totalEquity);
     
     // ADL Score = Profit % × Effective Leverage
-    return profitPercentage * effectiveLeverage;
+    return profitPercentage.times(effectiveLeverage).toNumber();
   }
 
   // Get ADL queue - positions ranked by ADL score
@@ -23,14 +31,15 @@ class ADLEngine {
     const queue = [];
     
     positions.forEach(position => {
-      if (position.unrealizedPnL > 0) { // Only profitable positions
+      const pnl = new Decimal(position.unrealizedPnL);
+      if (pnl.greaterThan(0)) { // Only profitable positions
         const adlScore = position.adlScore || 0;
         queue.push({
           positionId: position.userId, // One-way mode: userId only
           userId: position.userId,
           side: position.side,
-          size: position.size,
-          unrealizedPnL: position.unrealizedPnL,
+          size: position.size.toString(), // Convert Decimal to string for JSON
+          unrealizedPnL: position.unrealizedPnL.toString(), // Convert Decimal to string for JSON
           adlScore,
           adlRank: 0 // Will be set after sorting
         });
@@ -64,52 +73,88 @@ class ADLEngine {
 
   // Execute ADL when insurance fund is insufficient
   executeADL(positions, requiredAmount, bankruptPosition) {
-    const adlQueue = this.getADLQueue(positions);
-    const deleveragedPositions = [];
-    let remainingAmount = requiredAmount;
+    console.log('🔄 ADL Engine: executeADL called');
+    console.log('  Positions type:', typeof positions);
+    console.log('  Positions is Map:', positions instanceof Map);
+    console.log('  Required amount:', requiredAmount.toString());
+    console.log('  Bankrupt position:', bankruptPosition);
     
-    for (const queueItem of adlQueue) {
-      if (remainingAmount <= 0) break;
+    try {
+      // Convert Map to Array for getADLQueue
+      const positionsArray = positions instanceof Map ? 
+        Array.from(positions.values()) : 
+        Array.isArray(positions) ? positions : [];
       
-      const position = positions.get(queueItem.userId); // One-way mode: userId only
-      if (!position || position.side === bankruptPosition.side) continue;
+      console.log('  Converted to array, length:', positionsArray.length);
       
-      // Calculate how much of this position to close
-      const positionValue = position.size * bankruptPosition.avgEntryPrice;
-      const closeAmount = Math.min(remainingAmount, positionValue);
-      const closeSizeRatio = closeAmount / positionValue;
-      const closeSize = position.size * closeSizeRatio;
+      const adlQueue = this.getADLQueue(positionsArray);
+      console.log('  ADL queue length:', adlQueue.length);
       
-      // Execute ADL
-      const adlExecution = {
-        positionId: queueItem.positionId,
-        userId: position.userId,
-        side: position.side,
-        originalSize: position.size,
-        closedSize: closeSize,
-        remainingSize: position.size - closeSize,
-        closePrice: bankruptPosition.avgEntryPrice,
-        realizedPnL: closeAmount,
-        timestamp: Date.now(),
-        reason: 'ADL execution'
-      };
-      
-      deleveragedPositions.push(adlExecution);
-      
-      // Update position
-      position.size -= closeSize;
-      if (position.size <= 0) {
-        positions.delete(queueItem.positionId);
+      const deleveragedPositions = [];
+      let remainingAmount = requiredAmount;
+    
+      for (const queueItem of adlQueue) {
+        if (remainingAmount <= 0) break;
+        
+        const position = positions.get(queueItem.userId); // One-way mode: userId only
+        if (!position || position.side === bankruptPosition.side) continue;
+        
+        // Calculate how much of this position to close using Decimal arithmetic
+        const positionSize = new Decimal(position.size);
+        const bankruptEntryPrice = new Decimal(bankruptPosition.avgEntryPrice);
+        const positionValue = positionSize.times(bankruptEntryPrice);
+        const remainingAmountDec = new Decimal(remainingAmount);
+        
+        const closeAmount = Decimal.min(remainingAmountDec, positionValue);
+        const closeSizeRatio = closeAmount.dividedBy(positionValue);
+        const closeSize = positionSize.times(closeSizeRatio);
+        
+        // Execute ADL
+        const adlExecution = {
+          positionId: queueItem.positionId,
+          userId: position.userId,
+          side: position.side,
+          originalSize: position.size.toString(),
+          closedSize: closeSize.toString(),
+          remainingSize: positionSize.minus(closeSize).toString(),
+          closePrice: bankruptPosition.avgEntryPrice.toString(),
+          realizedPnL: closeAmount.toString(),
+          timestamp: Date.now(),
+          reason: 'ADL execution'
+        };
+        
+        deleveragedPositions.push(adlExecution);
+        
+        // Update position using Decimal arithmetic
+        position.size = positionSize.minus(closeSize);
+        if (position.size.lessThanOrEqualTo(0)) {
+          positions.delete(queueItem.positionId);
+        }
+        
+        remainingAmount -= closeAmount.toNumber();
       }
       
-      remainingAmount -= closeAmount;
+      const result = {
+        success: remainingAmount <= 0,
+        deleveragedPositions,
+        remainingDeficit: Math.max(0, remainingAmount)
+      };
+      
+      console.log('  ADL result:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ ADL Engine Error:', {
+        message: error.message,
+        stack: error.stack
+      });
+      return {
+        success: false,
+        error: error.message,
+        deleveragedPositions: [],
+        remainingDeficit: requiredAmount
+      };
     }
-    
-    return {
-      success: remainingAmount <= 0,
-      deleveragedPositions,
-      remainingDeficit: Math.max(0, remainingAmount)
-    };
   }
 
   // Check if ADL should be triggered
@@ -129,17 +174,20 @@ class ADLEngine {
       const position = positions.get(queueItem.userId); // One-way mode: userId only
       if (!position || position.side === bankruptPosition.side) continue;
       
-      const positionValue = position.size * bankruptPosition.avgEntryPrice;
-      const closeAmount = Math.min(remainingAmount, positionValue);
+      const positionSize = new Decimal(position.size);
+      const bankruptEntryPrice = new Decimal(bankruptPosition.avgEntryPrice);
+      const positionValue = positionSize.times(bankruptEntryPrice);
+      const remainingAmountDec = new Decimal(remainingAmount);
+      const closeAmount = Decimal.min(remainingAmountDec, positionValue);
       
       affectedUsers.push({
         userId: position.userId,
         positionId: queueItem.positionId,
-        closeAmount,
-        impactPercentage: (closeAmount / positionValue) * 100
+        closeAmount: closeAmount.toNumber(),
+        impactPercentage: closeAmount.dividedBy(positionValue).times(100).toNumber()
       });
       
-      remainingAmount -= closeAmount;
+      remainingAmount -= closeAmount.toNumber();
     }
     
     return {
@@ -149,11 +197,27 @@ class ADLEngine {
     };
   }
 
-  getQueue() {
-    // This is a placeholder. The main logic is in getADLQueue,
-    // which requires the positions map to be passed in.
-    // getState in exchange.js needs a synchronous way to get a basic queue representation.
-    return [];
+  getQueue(positions, users, currentPrice) {
+    if (!positions || !users || !currentPrice) {
+      return [];
+    }
+    
+    // Convert Map to Array and calculate ADL scores for each position
+    const positionsArray = Array.from(positions.values());
+    
+    // Calculate ADL scores for each position before getting queue
+    positionsArray.forEach(position => {
+      const pnl = new Decimal(position.unrealizedPnL);
+      if (pnl.greaterThan(0)) { // Only profitable positions
+        const user = users.get(position.userId);
+        if (user) {
+          const userBalance = new Decimal(user.availableBalance);
+          position.adlScore = this.calculateADLScore(position, userBalance.toNumber(), currentPrice);
+        }
+      }
+    });
+    
+    return this.getADLQueue(positionsArray);
   }
 }
 
