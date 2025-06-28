@@ -106,6 +106,16 @@ class OrderBook {
     if (!bestBid || !bestAsk) return null;
     return bestAsk.price - bestBid.price;
   }
+
+  getUserOrders(userId) {
+    const userOrders = [];
+    this.orders.forEach(order => {
+      if (order.userId === userId) {
+        userOrders.push(order);
+      }
+    });
+    return userOrders.sort((a, b) => b.timestamp - a.timestamp); // Latest first
+  }
 }
 
 module.exports = { OrderBook }; 

@@ -15,13 +15,13 @@ class LiquidationEngine {
   }
 
   calculateLiquidationPrice(position) {
-    const { entryPrice, leverage, side } = position;
+    const { avgEntryPrice, leverage, side } = position;
     const mmr = 0.005; // 0.5% maintenance margin rate
 
     if (side === 'long') {
-      return entryPrice * (1 - 1/leverage + mmr);
+      return avgEntryPrice * (1 - 1/leverage + mmr);
     } else {
-      return entryPrice * (1 + 1/leverage - mmr);
+      return avgEntryPrice * (1 + 1/leverage - mmr);
     }
   }
 
@@ -35,9 +35,9 @@ class LiquidationEngine {
     // Calculate losses
     let totalLoss;
     if (position.side === 'long') {
-      totalLoss = (position.entryPrice - currentPrice) * position.size;
+      totalLoss = (position.avgEntryPrice - currentPrice) * position.size;
     } else {
-      totalLoss = (currentPrice - position.entryPrice) * position.size;
+      totalLoss = (currentPrice - position.avgEntryPrice) * position.size;
     }
     
     // Remaining balance after liquidation
@@ -51,11 +51,11 @@ class LiquidationEngine {
     }
 
     const liquidation = {
-      positionId: `${position.userId}-${position.side}`,
+      positionId: position.userId, // One-way mode: userId only
       userId: position.userId,
       side: position.side,
       size: position.size,
-      entryPrice: position.entryPrice,
+      entryPrice: position.avgEntryPrice,
       liquidationPrice: currentPrice,
       bankruptcyPrice,
       totalLoss,
@@ -69,12 +69,12 @@ class LiquidationEngine {
   }
 
   calculateBankruptcyPrice(position) {
-    const { entryPrice, leverage, side } = position;
+    const { avgEntryPrice, leverage, side } = position;
 
     if (side === 'long') {
-      return entryPrice * (1 - 1/leverage);
+      return avgEntryPrice * (1 - 1/leverage);
     } else {
-      return entryPrice * (1 + 1/leverage);
+      return avgEntryPrice * (1 + 1/leverage);
     }
   }
 

@@ -18,6 +18,15 @@ class MatchingEngine {
         const orders = this.orderBook.asks.get(price);
         for (let i = 0; i < orders.length && remainingSize > 0; i++) {
           const sellOrder = orders[i];
+          
+          // Self-match prevention: Cancel oldest (resting order)
+          if (sellOrder.userId === incomingOrder.userId) {
+            console.log(`Canceling oldest order ${sellOrder.id} to prevent self-match for user ${sellOrder.userId}`);
+            this.orderBook.removeOrder(sellOrder.id);
+            i--; // Adjust index since we removed an order
+            continue; // Skip to next order, no match created
+          }
+          
           const matchSize = Math.min(remainingSize, sellOrder.size);
           
           matches.push({
@@ -48,6 +57,15 @@ class MatchingEngine {
         const orders = this.orderBook.bids.get(price);
         for (let i = 0; i < orders.length && remainingSize > 0; i++) {
           const buyOrder = orders[i];
+          
+          // Self-match prevention: Cancel oldest (resting order)
+          if (buyOrder.userId === incomingOrder.userId) {
+            console.log(`Canceling oldest order ${buyOrder.id} to prevent self-match for user ${buyOrder.userId}`);
+            this.orderBook.removeOrder(buyOrder.id);
+            i--; // Adjust index since we removed an order
+            continue; // Skip to next order, no match created
+          }
+          
           const matchSize = Math.min(remainingSize, buyOrder.size);
           
           matches.push({

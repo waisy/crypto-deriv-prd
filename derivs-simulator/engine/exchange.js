@@ -106,6 +106,24 @@ class Exchange {
     };
   }
 
+  cancelOrder(data) {
+    const { orderId } = data;
+    
+    const success = this.orderBook.removeOrder(orderId);
+    
+    if (!success) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+
+    console.log(`Order ${orderId} cancelled`);
+
+    return {
+      success: true,
+      orderId,
+      state: this.getState()
+    };
+  }
+
   processTrade(match) {
     const { buyOrder, sellOrder, price, size } = match;
     
@@ -130,26 +148,75 @@ class Exchange {
   }
 
   updatePosition(userId, side, size, price, leverage) {
-    const positionKey = `${userId}-${side}`;
+    const positionKey = userId; // One-way mode: one position per user
     let position = this.positions.get(positionKey);
+    let realizedPnL = 0;
     
     if (!position) {
+      // No existing position - create new one
       position = new Position(userId, side, size, price, leverage);
       this.positions.set(positionKey, position);
+      console.log(`Created new ${side} position for ${userId}: ${size} BTC @ $${price}`);
     } else {
-      position.addSize(size, price);
+      // Existing position - handle netting
+      if (position.side === side) {
+        // Same direction - add to position
+        position.addSize(size, price);
+        console.log(`Added to ${side} position for ${userId}: +${size} BTC @ $${price} (total: ${position.size} BTC)`);
+      } else {
+        // Opposite direction - net positions
+        if (size < position.size) {
+          // Reduce existing position
+          realizedPnL = position.reduceSize(size, price);
+          console.log(`Reduced ${position.side} position for ${userId}: -${size} BTC @ $${price} (remaining: ${position.size} BTC, realized PnL: $${realizedPnL.toFixed(2)})`);
+        } else if (size === position.size) {
+          // Close position completely
+          realizedPnL = position.closePosition(price);
+          this.positions.delete(positionKey);
+          console.log(`Closed ${position.side} position for ${userId}: ${size} BTC @ $${price} (realized PnL: $${realizedPnL.toFixed(2)})`);
+          
+          // Update user balance with realized PnL
+          const user = this.users.get(userId);
+          user.availableBalance += realizedPnL;
+          user.usedMargin -= position.initialMargin;
+          return; // Position closed, no further updates needed
+        } else {
+          // Flip position direction
+          const excessSize = size - position.size;
+          realizedPnL = position.closePosition(price);
+          
+          // Create new position in opposite direction with excess size
+          this.positions.delete(positionKey);
+          position = new Position(userId, side, excessSize, price, leverage);
+          this.positions.set(positionKey, position);
+          
+          console.log(`Flipped position for ${userId}: closed ${position.side} and opened ${side} ${excessSize} BTC @ $${price} (realized PnL: $${realizedPnL.toFixed(2)})`);
+        }
+        
+        // Update user balance with realized PnL
+        const user = this.users.get(userId);
+        user.availableBalance += realizedPnL;
+        
+        // Adjust used margin for partial/full closures
+        if (size >= position.size) {
+          user.usedMargin -= position.initialMargin;
+        }
+      }
     }
 
-    // Calculate PnL
-    position.updatePnL(this.currentMarkPrice);
-    
-    // Calculate margin requirements
-    const marginReqs = this.marginCalculator.calculateMarginRequirements(position, this.currentMarkPrice);
-    position.initialMargin = marginReqs.initial;
-    position.maintenanceMargin = marginReqs.maintenance;
-    
-    // Calculate liquidation price
-    position.liquidationPrice = this.marginCalculator.calculateLiquidationPrice(position);
+    // Calculate PnL for remaining/new position
+    if (this.positions.has(positionKey)) {
+      position = this.positions.get(positionKey);
+      position.updatePnL(this.currentMarkPrice);
+      
+      // Calculate margin requirements
+      const marginReqs = this.marginCalculator.calculateMarginRequirements(position, this.currentMarkPrice);
+      position.initialMargin = marginReqs.initial;
+      position.maintenanceMargin = marginReqs.maintenance;
+      
+      // Calculate liquidation price
+      position.liquidationPrice = this.marginCalculator.calculateLiquidationPrice(position);
+    }
   }
 
   updateUserBalances(buyOrder, sellOrder, price, size) {
@@ -221,7 +288,7 @@ class Exchange {
         liquidations.push(liquidation);
         
         // Remove liquidated position
-        const positionKey = `${position.userId}-${position.side}`;
+        const positionKey = position.userId; // One-way mode: userId only
         this.positions.delete(positionKey);
         
         // Update user balance
@@ -242,7 +309,7 @@ class Exchange {
         const liquidation = this.liquidationEngine.liquidate(position, this.currentMarkPrice);
         liquidations.push(liquidation);
         
-        const positionKey = `${position.userId}-${position.side}`;
+        const positionKey = position.userId; // One-way mode: userId only
         this.positions.delete(positionKey);
         
         const user = this.users.get(position.userId);
@@ -264,10 +331,18 @@ class Exchange {
       positions: Array.from(this.positions.values()),
       trades: this.trades.slice(-50), // Last 50 trades
       orderBook: this.orderBook.getState(),
+      userOrders: {
+        user1: this.orderBook.getUserOrders('user1'),
+        user2: this.orderBook.getUserOrders('user2')
+      },
       markPrice: this.currentMarkPrice,
       indexPrice: this.indexPrice,
       fundingRate: this.fundingRate,
-      adlQueue: this.adlEngine.getADLQueue(this.positions)
+      adlQueue: this.adlEngine.getADLQueue(this.positions),
+      insuranceFund: {
+        balance: this.liquidationEngine.getInsuranceFundBalance(),
+        isAtRisk: this.liquidationEngine.isSystemAtRisk()
+      }
     };
   }
 }

@@ -5,7 +5,7 @@ class ADLEngine {
 
   // Calculate ADL score for position ranking
   calculateADLScore(position, userBalance, currentPrice) {
-    const positionValue = position.size * position.entryPrice;
+    const positionValue = position.size * position.avgEntryPrice;
     
     // Unrealized profit percentage
     const profitPercentage = position.unrealizedPnL / positionValue;
@@ -26,7 +26,7 @@ class ADLEngine {
       if (position.unrealizedPnL > 0) { // Only profitable positions
         const adlScore = position.adlScore || 0;
         queue.push({
-          positionId: `${position.userId}-${position.side}`,
+          positionId: position.userId, // One-way mode: userId only
           userId: position.userId,
           side: position.side,
           size: position.size,
@@ -71,11 +71,11 @@ class ADLEngine {
     for (const queueItem of adlQueue) {
       if (remainingAmount <= 0) break;
       
-      const position = positions.get(`${queueItem.userId}-${queueItem.side}`);
+      const position = positions.get(queueItem.userId); // One-way mode: userId only
       if (!position || position.side === bankruptPosition.side) continue;
       
       // Calculate how much of this position to close
-      const positionValue = position.size * bankruptPosition.entryPrice;
+      const positionValue = position.size * bankruptPosition.avgEntryPrice;
       const closeAmount = Math.min(remainingAmount, positionValue);
       const closeSizeRatio = closeAmount / positionValue;
       const closeSize = position.size * closeSizeRatio;
@@ -88,7 +88,7 @@ class ADLEngine {
         originalSize: position.size,
         closedSize: closeSize,
         remainingSize: position.size - closeSize,
-        closePrice: bankruptPosition.entryPrice,
+        closePrice: bankruptPosition.avgEntryPrice,
         realizedPnL: closeAmount,
         timestamp: Date.now(),
         reason: 'ADL execution'
@@ -126,10 +126,10 @@ class ADLEngine {
     for (const queueItem of adlQueue) {
       if (remainingAmount <= 0) break;
       
-      const position = positions.get(`${queueItem.userId}-${queueItem.side}`);
+      const position = positions.get(queueItem.userId); // One-way mode: userId only
       if (!position || position.side === bankruptPosition.side) continue;
       
-      const positionValue = position.size * bankruptPosition.entryPrice;
+      const positionValue = position.size * bankruptPosition.avgEntryPrice;
       const closeAmount = Math.min(remainingAmount, positionValue);
       
       affectedUsers.push({

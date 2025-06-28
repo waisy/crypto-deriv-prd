@@ -5,6 +5,131 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Derivatives Exchange Simulator</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .size-buttons {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        .size-buttons .btn-small {
+            flex: 1;
+            font-size: 0.8rem;
+        }
+        
+        .system-health {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .insurance-fund {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            border-radius: 4px;
+            background: #1a1f2e;
+            border: 1px solid #2a2f3e;
+        }
+        
+        .insurance-fund label {
+            color: #8892b0;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .insurance-fund span {
+            color: #00d4aa;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        
+        .insurance-fund.at-risk {
+            border-color: #ff4757;
+            background: rgba(255, 71, 87, 0.1);
+        }
+        
+        .insurance-fund.at-risk span {
+            color: #ff4757;
+        }
+        
+        .orders-section {
+            margin-bottom: 15px;
+        }
+        
+        .orders-container {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .order-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            margin-bottom: 3px;
+            background: #1a1f2e;
+            border-radius: 4px;
+            border: 1px solid #2a2f3e;
+            font-size: 0.85rem;
+        }
+        
+        .order-details {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }
+        
+        .order-side {
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .order-side.buy {
+            color: #00d4aa;
+        }
+        
+        .order-side.sell {
+            color: #ff4757;
+        }
+        
+        .order-type {
+            color: #8892b0;
+            font-size: 0.75rem;
+            background: #0a0e1a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #2a2f3e;
+        }
+        
+        .order-cancel {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            min-width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+        }
+        
+        .order-cancel:hover {
+            opacity: 0.8;
+        }
+        
+        .no-orders {
+            text-align: center;
+            color: #8892b0;
+            font-style: italic;
+            padding: 10px;
+        }
+    </style>
 </head>
 <body>
     <div class="app">
@@ -12,6 +137,12 @@
             <h1>Derivatives Exchange Simulator</h1>
             <div class="price-display">
                 <div class="mark-price" id="markPrice">$45,000.00</div>
+            </div>
+            <div class="system-health">
+                <div class="insurance-fund" id="insuranceFund">
+                    <label>Insurance Fund:</label>
+                    <span id="insuranceFundBalance">$1,000,000</span>
+                </div>
             </div>
             <div class="user-tabs">
                 <div class="user-tab active" data-user="user1">User 1</div>
@@ -45,7 +176,13 @@
 
                     <div class="form-row">
                         <label>Size (BTC)</label>
-                        <input type="number" id="orderSize" step="0.001" min="0.001" placeholder="0.001">
+                        <input type="number" id="orderSize" step="0.001" min="0.001" value="0.001" placeholder="0.001">
+                        <div class="size-buttons">
+                            <button type="button" class="btn-small" onclick="setSize(0.001)">0.001</button>
+                            <button type="button" class="btn-small" onclick="setSize(0.01)">0.01</button>
+                            <button type="button" class="btn-small" onclick="setSize(0.1)">0.1</button>
+                            <button type="button" class="btn-small" onclick="setSize(1.0)">1.0</button>
+                        </div>
                     </div>
 
                     <div class="form-row" id="priceRow">
@@ -104,10 +241,10 @@
                     </div>
                 </div>
 
-                <div class="positions-section">
-                    <h3>Recent Trades</h3>
-                    <div class="trades-mini" id="trades">
-                        <div class="no-trades">No trades yet</div>
+                <div class="orders-section">
+                    <h3>Open Orders</h3>
+                    <div class="orders-container" id="openOrders">
+                        <div class="no-orders">No open orders</div>
                     </div>
                 </div>
             </div>
@@ -143,6 +280,13 @@
                     <h3>Positions</h3>
                     <div class="positions-container" id="positions">
                         <div class="no-positions">No open positions</div>
+                    </div>
+                </div>
+
+                <div class="trades-section">
+                    <h3>Recent Trades</h3>
+                    <div class="trades-mini" id="trades">
+                        <div class="no-trades">No trades yet</div>
                     </div>
                 </div>
 
@@ -183,16 +327,21 @@
                 console.log('Connected to exchange');
             };
             
-            ws.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                if (data.type === 'init' || data.type === 'update') {
-                    exchangeState = data.state;
-                    updateUI();
-                }
-                if (data.error) {
-                    showError(data.error);
-                }
-            };
+                         ws.onmessage = function(event) {
+                 const data = JSON.parse(event.data);
+                 if (data.type === 'init' || data.type === 'update') {
+                     exchangeState = data.state;
+                     updateUI();
+                     
+                     // Auto-populate price on initial connection
+                     if (data.type === 'init') {
+                         updateAggressivePrice();
+                     }
+                 }
+                 if (data.error) {
+                     showError(data.error);
+                 }
+             };
             
             ws.onclose = function() {
                 console.log('Disconnected from exchange');
@@ -202,16 +351,18 @@
 
         // UI Event Handlers
         document.addEventListener('DOMContentLoaded', function() {
-            // User tab switching
-            document.querySelectorAll('.user-tab').forEach(tab => {
-                tab.addEventListener('click', function() {
-                    document.querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
-                    this.classList.add('active');
-                    currentUser = this.dataset.user;
-                    document.getElementById('currentUser').textContent = currentUser === 'user1' ? 'User 1' : 'User 2';
-                    updateUserInfo();
-                });
-            });
+                         // User tab switching
+             document.querySelectorAll('.user-tab').forEach(tab => {
+                 tab.addEventListener('click', function() {
+                     document.querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
+                     this.classList.add('active');
+                     currentUser = this.dataset.user;
+                     document.getElementById('currentUser').textContent = currentUser === 'user1' ? 'User 1' : 'User 2';
+                     updateUserInfo();
+                     updatePositions();
+                     updateOrders();
+                 });
+             });
 
             // Side button switching
             document.querySelectorAll('.btn-side').forEach(btn => {
@@ -220,18 +371,20 @@
                     this.classList.add('active');
                     currentSide = this.dataset.side;
                     updatePlaceOrderButton();
+                    updateAggressivePrice();
                 });
             });
 
-            // Order type change
-            document.getElementById('orderType').addEventListener('change', function() {
-                const priceRow = document.getElementById('priceRow');
-                if (this.value === 'market') {
-                    priceRow.style.display = 'none';
-                } else {
-                    priceRow.style.display = 'block';
-                }
-            });
+                         // Order type change
+             document.getElementById('orderType').addEventListener('change', function() {
+                 const priceRow = document.getElementById('priceRow');
+                 if (this.value === 'market') {
+                     priceRow.style.display = 'none';
+                 } else {
+                     priceRow.style.display = 'block';
+                     updateAggressivePrice(); // Auto-populate price when switching to limit
+                 }
+             });
 
             // Form submission
             document.getElementById('orderForm').addEventListener('submit', function(e) {
@@ -271,11 +424,9 @@
                 return;
             }
 
-            ws.send(JSON.stringify(orderData));
-            
-            // Reset form
-            document.getElementById('orderSize').value = '';
-            document.getElementById('orderPrice').value = '';
+                         ws.send(JSON.stringify(orderData));
+             
+             // Keep both size and price for rapid repeat orders
         }
 
         function updateMarkPrice() {
@@ -304,29 +455,91 @@
             document.getElementById('marginInfo').textContent = `Margin Required: $${margin.toFixed(2)}`;
         }
 
-        function updatePlaceOrderButton() {
-            const btn = document.getElementById('placeOrderBtn');
-            btn.textContent = `Place ${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} Order`;
-        }
+                 function updatePlaceOrderButton() {
+             const btn = document.getElementById('placeOrderBtn');
+             btn.textContent = `Place ${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} Order`;
+         }
 
-        function updateUI() {
-            if (!exchangeState) return;
+         function updateInsuranceFund() {
+             if (!exchangeState.insuranceFund) return;
+             
+             const balanceElement = document.getElementById('insuranceFundBalance');
+             const fundElement = document.getElementById('insuranceFund');
+             
+             const balance = exchangeState.insuranceFund.balance;
+             const isAtRisk = exchangeState.insuranceFund.isAtRisk;
+             
+             balanceElement.textContent = `$${balance.toLocaleString()}`;
+             
+             // Update styling based on risk status
+             if (isAtRisk) {
+                 fundElement.classList.add('at-risk');
+             } else {
+                 fundElement.classList.remove('at-risk');
+             }
+         }
 
-            // Update mark price
-            document.getElementById('markPrice').textContent = `$${exchangeState.markPrice?.toLocaleString() || '45,000.00'}`;
+         function updateAggressivePrice() {
+             if (!exchangeState || !exchangeState.orderBook) {
+                 return;
+             }
+             
+             const priceInput = document.getElementById('orderPrice');
+             const orderType = document.getElementById('orderType').value;
+             
+             // Only auto-populate for limit orders and only if price field is empty
+             if (orderType !== 'limit' || priceInput.value !== '') return;
+             
+             let aggressivePrice = null;
+             
+             if (currentSide === 'buy') {
+                 // For buy orders, use best ask (lowest sell price) to aggress immediately
+                 if (exchangeState.orderBook.bestAsk) {
+                     aggressivePrice = exchangeState.orderBook.bestAsk;
+                 } else {
+                     // Fallback: use mark price + small buffer for buy orders
+                     aggressivePrice = exchangeState.markPrice + 1;
+                 }
+             } else {
+                 // For sell orders, use best bid (highest buy price) to aggress immediately  
+                 if (exchangeState.orderBook.bestBid) {
+                     aggressivePrice = exchangeState.orderBook.bestBid;
+                 } else {
+                     // Fallback: use mark price - small buffer for sell orders
+                     aggressivePrice = exchangeState.markPrice - 1;
+                 }
+             }
+             
+             if (aggressivePrice) {
+                 priceInput.value = aggressivePrice.toFixed(2);
+                 calculateMargin(); // Update margin calculation with new price
+             }
+         }
 
-            // Update order book
-            updateOrderBook();
-            
-            // Update user info
-            updateUserInfo();
-            
-            // Update positions
-            updatePositions();
-            
-            // Update trades
-            updateTrades();
-        }
+                 function updateUI() {
+             if (!exchangeState) return;
+
+             // Update mark price
+             document.getElementById('markPrice').textContent = `$${exchangeState.markPrice?.toLocaleString() || '45,000.00'}`;
+
+             // Update insurance fund
+             updateInsuranceFund();
+
+             // Update order book
+             updateOrderBook();
+             
+             // Update user info
+             updateUserInfo();
+             
+             // Update positions
+             updatePositions();
+             
+             // Update orders
+             updateOrders();
+             
+             // Update trades
+             updateTrades();
+         }
 
         function updateOrderBook() {
             if (!exchangeState.orderBook) return;
@@ -430,37 +643,80 @@
             });
         }
 
-        function updateTrades() {
-            const tradesContainer = document.getElementById('trades');
-            tradesContainer.innerHTML = '';
+                 function updateOrders() {
+             const ordersContainer = document.getElementById('openOrders');
+             ordersContainer.innerHTML = '';
 
-            if (!exchangeState.trades || exchangeState.trades.length === 0) {
-                const noTrades = document.createElement('div');
-                noTrades.className = 'no-trades';
-                noTrades.textContent = 'No trades yet';
-                tradesContainer.appendChild(noTrades);
-                return;
-            }
+             const userOrders = exchangeState.userOrders?.[currentUser] || [];
 
-            // Show last 10 trades
-            const recentTrades = exchangeState.trades.slice(-10).reverse();
-            
-            recentTrades.forEach(trade => {
-                const tradeDiv = document.createElement('div');
-                tradeDiv.className = 'trade-item';
-                tradeDiv.innerHTML = `
-                    <div class="trade-price">${trade.size} @ $${trade.price}</div>
-                    <div class="trade-time">${new Date(trade.timestamp).toLocaleTimeString()}</div>
-                `;
-                tradesContainer.appendChild(tradeDiv);
-            });
-        }
+             if (userOrders.length === 0) {
+                 const noOrders = document.createElement('div');
+                 noOrders.className = 'no-orders';
+                 noOrders.textContent = 'No open orders';
+                 ordersContainer.appendChild(noOrders);
+                 return;
+             }
 
-        function showError(message) {
-            // You can implement a proper error display here
-            console.error(message);
-            alert(message); // Temporary error display
-        }
+             userOrders.forEach(order => {
+                 const orderDiv = document.createElement('div');
+                 orderDiv.className = 'order-item';
+                 orderDiv.innerHTML = `
+                     <div class="order-details">
+                         <span class="order-side ${order.side}">${order.side}</span>
+                         <span>${order.size}</span>
+                         <span>@</span>
+                         <span>$${order.price}</span>
+                         <span class="order-type">${order.type.toUpperCase()}</span>
+                     </div>
+                     <button class="order-cancel" onclick="cancelOrder('${order.id}')">×</button>
+                 `;
+                 ordersContainer.appendChild(orderDiv);
+             });
+         }
+
+         function cancelOrder(orderId) {
+             ws.send(JSON.stringify({
+                 type: 'cancel_order',
+                 orderId: orderId
+             }));
+         }
+
+         function updateTrades() {
+             const tradesContainer = document.getElementById('trades');
+             tradesContainer.innerHTML = '';
+
+             if (!exchangeState.trades || exchangeState.trades.length === 0) {
+                 const noTrades = document.createElement('div');
+                 noTrades.className = 'no-trades';
+                 noTrades.textContent = 'No trades yet';
+                 tradesContainer.appendChild(noTrades);
+                 return;
+             }
+
+             // Show last 10 trades
+             const recentTrades = exchangeState.trades.slice(-10).reverse();
+             
+             recentTrades.forEach(trade => {
+                 const tradeDiv = document.createElement('div');
+                 tradeDiv.className = 'trade-item';
+                 tradeDiv.innerHTML = `
+                     <div class="trade-price">${trade.size} @ $${trade.price}</div>
+                     <div class="trade-time">${new Date(trade.timestamp).toLocaleTimeString()}</div>
+                 `;
+                 tradesContainer.appendChild(tradeDiv);
+             });
+         }
+
+                 function setSize(size) {
+             document.getElementById('orderSize').value = size;
+             calculateMargin(); // Update margin calculation with new size
+         }
+
+         function showError(message) {
+             // You can implement a proper error display here
+             console.error(message);
+             alert(message); // Temporary error display
+         }
     </script>
 </body>
 </html> 

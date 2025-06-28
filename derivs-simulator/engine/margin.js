@@ -18,34 +18,34 @@ class MarginCalculator {
     const currentValue = position.size * currentPrice;
     
     return {
-      initial: this.calculateInitialMargin(position.size, position.entryPrice, position.leverage),
+      initial: this.calculateInitialMargin(position.size, position.avgEntryPrice, position.leverage),
       maintenance: this.calculateMaintenanceMargin(position.size, currentPrice),
-      used: this.calculateInitialMargin(position.size, position.entryPrice, position.leverage)
+      used: this.calculateInitialMargin(position.size, position.avgEntryPrice, position.leverage)
     };
   }
 
   // Linear contract liquidation price calculation
   calculateLiquidationPrice(position) {
-    const { entryPrice, leverage, side } = position;
+    const { avgEntryPrice, leverage, side } = position;
     const mmr = this.maintenanceMarginRate;
 
     if (side === 'long') {
       // Liquidation Price = Entry Price × (1 - 1/Leverage + Maintenance Margin Rate)
-      return entryPrice * (1 - 1/leverage + mmr);
+      return avgEntryPrice * (1 - 1/leverage + mmr);
     } else {
       // Liquidation Price = Entry Price × (1 + 1/Leverage - Maintenance Margin Rate)
-      return entryPrice * (1 + 1/leverage - mmr);
+      return avgEntryPrice * (1 + 1/leverage - mmr);
     }
   }
 
   // Calculate bankruptcy price (where all margin is lost)
   calculateBankruptcyPrice(position) {
-    const { entryPrice, leverage, side } = position;
+    const { avgEntryPrice, leverage, side } = position;
 
     if (side === 'long') {
-      return entryPrice * (1 - 1/leverage);
+      return avgEntryPrice * (1 - 1/leverage);
     } else {
-      return entryPrice * (1 + 1/leverage);
+      return avgEntryPrice * (1 + 1/leverage);
     }
   }
 
