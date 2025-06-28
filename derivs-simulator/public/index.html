@@ -577,10 +577,21 @@
             // Format BTC amounts to 3 decimal places (minimum order size is 0.001)
             try {
                 if (!amount && amount !== 0) return '0.000';
-                // Clean the input before creating Decimal
-                const cleanAmount = typeof amount === 'string' ? 
-                    amount.replace(/[^0-9.-]/g, '') : amount;
-                const decimal = new Decimal(cleanAmount);
+                
+                // Handle string inputs
+                if (typeof amount === 'string') {
+                    // Remove all non-numeric chars except decimal and minus
+                    amount = amount.replace(/[^0-9.-]/g, '');
+                    // Handle multiple decimal points
+                    const parts = amount.split('.');
+                    if (parts.length > 2) {
+                        amount = parts[0] + '.' + parts.slice(1).join('');
+                    }
+                    // Remove leading zeros before decimal
+                    amount = amount.replace(/^0+(?=\d)/, '');
+                }
+                
+                const decimal = new Decimal(amount || 0);
                 return decimal.toFixed(3);
             } catch (e) {
                 console.error('Error formatting BTC amount:', e, 'amount:', amount);
@@ -592,10 +603,21 @@
             // Format USD prices to 2 decimal places with proper comma formatting
             try {
                 if (!price && price !== 0) return '0.00';
-                // Clean the input before creating Decimal
-                const cleanPrice = typeof price === 'string' ? 
-                    price.replace(/[^0-9.-]/g, '') : price;
-                const decimal = new Decimal(cleanPrice);
+                
+                // Handle string inputs
+                if (typeof price === 'string') {
+                    // Remove all non-numeric chars except decimal and minus
+                    price = price.replace(/[^0-9.-]/g, '');
+                    // Handle multiple decimal points
+                    const parts = price.split('.');
+                    if (parts.length > 2) {
+                        price = parts[0] + '.' + parts.slice(1).join('');
+                    }
+                    // Remove leading zeros before decimal
+                    price = price.replace(/^0+(?=\d)/, '');
+                }
+                
+                const decimal = new Decimal(price || 0);
                 return decimal.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             } catch (e) {
                 console.error('Error formatting price:', e, 'price:', price);
@@ -608,29 +630,31 @@
             if (!value || value === '' || value === null || value === undefined) return '';
             
             try {
-                // Clean the value first - remove all non-numeric characters except decimal point
-                let cleanValue = value.toString().replace(/[^0-9.]/g, '');
-                
-                // Handle multiple decimal points by keeping only the first one
-                const decimalParts = cleanValue.split('.');
-                if (decimalParts.length > 2) {
-                    cleanValue = decimalParts[0] + '.' + decimalParts.slice(1).join('');
+                // Handle string inputs
+                if (typeof value === 'string') {
+                    // Remove all non-numeric chars except decimal and minus
+                    value = value.replace(/[^0-9.-]/g, '');
+                    // Handle multiple decimal points
+                    const parts = value.split('.');
+                    if (parts.length > 2) {
+                        value = parts[0] + '.' + parts.slice(1).join('');
+                    }
+                    // Remove leading zeros before decimal
+                    value = value.replace(/^0+(?=\d)/, '');
                 }
                 
-                const num = parseFloat(cleanValue);
-                if (isNaN(num) || num < 0) return '';
+                const num = new Decimal(value || 0);
+                if (num.isNegative()) return '';
                 
                 if (type === 'btc') {
-                    // Format BTC amounts to 3 decimal places
                     return num.toFixed(3);
                 } else if (type === 'price') {
-                    // Format USD prices with commas and 2 decimal places
-                    return num.toLocaleString('en-US', {
+                    return num.toDP(2).toNumber().toLocaleString('en-US', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2
                     });
                 }
-                return cleanValue;
+                return value;
             } catch (e) {
                 console.error('Error formatting number input:', e, 'value:', value);
                 return '';
@@ -638,20 +662,23 @@
         }
         
         function parseNumberInput(value) {
-            // Remove commas and other formatting for calculations
             if (!value || value === '' || value === null || value === undefined) return '';
             
             try {
-                // Clean the value - remove all non-numeric characters except decimal point
-                let cleanValue = value.toString().replace(/[^0-9.]/g, '');
-                
-                // Handle multiple decimal points by keeping only the first one
-                const decimalParts = cleanValue.split('.');
-                if (decimalParts.length > 2) {
-                    cleanValue = decimalParts[0] + '.' + decimalParts.slice(1).join('');
+                // Handle string inputs
+                if (typeof value === 'string') {
+                    // Remove all non-numeric chars except decimal and minus
+                    value = value.replace(/[^0-9.-]/g, '');
+                    // Handle multiple decimal points
+                    const parts = value.split('.');
+                    if (parts.length > 2) {
+                        value = parts[0] + '.' + parts.slice(1).join('');
+                    }
+                    // Remove leading zeros before decimal
+                    value = value.replace(/^0+(?=\d)/, '');
                 }
                 
-                return cleanValue;
+                return value || '';
             } catch (e) {
                 console.error('Error parsing number input:', e, 'value:', value);
                 return '';

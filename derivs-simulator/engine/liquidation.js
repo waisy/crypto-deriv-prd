@@ -129,19 +129,49 @@ class LiquidationEngine {
     console.log(`💸 Pre-liquidation loss: $${preLiquidationLoss.toString()}`);
     console.log(`🏛️ Current insurance fund balance: $${this.insuranceFund.toString()}`);
     
-    // Check if this will break zero-sum invariant
-    const currentTotalLong = Array.from(allPositions.values())
-      .filter(p => p.side === 'long')
-      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
-    const currentTotalShort = Array.from(allPositions.values())
-      .filter(p => p.side === 'short')
-      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
+    // Calculate user position totals
+    let userLongs = new Decimal(0);
+    let userShorts = new Decimal(0);
+    let userLongPnL = new Decimal(0);
+    let userShortPnL = new Decimal(0);
+    
+    for (const pos of allPositions.values()) {
+      const size = new Decimal(pos.size);
       
+      // Handle PnL calculation for both types of positions
+      let pnl;
+      if (typeof pos.calculateUnrealizedPnL === 'function') {
+        pnl = pos.calculateUnrealizedPnL(decCurrentPrice);
+      } else if (pos.unrealizedPnL) {
+        pnl = new Decimal(pos.unrealizedPnL);
+      } else {
+        // Calculate PnL manually if neither method is available
+        const entryPrice = new Decimal(pos.avgEntryPrice || pos.entryPrice);
+        pnl = pos.side === 'long' 
+          ? decCurrentPrice.minus(entryPrice).times(size)
+          : entryPrice.minus(decCurrentPrice).times(size);
+      }
+
+      if (pos.side === 'long') {
+        userLongs = userLongs.plus(size);
+        userLongPnL = userLongPnL.plus(pnl);
+      } else {
+        userShorts = userShorts.plus(size);
+        userShortPnL = userShortPnL.plus(pnl);
+      }
+    }
+
     console.log(`📊 PRE-LIQUIDATION ZERO-SUM CHECK:`, {
-      totalLong: currentTotalLong.toString(),
-      totalShort: currentTotalShort.toString(),
-      difference: currentTotalLong.minus(currentTotalShort).toString(),
-      aboutToLiquidate: `${position.side} ${position.size.toString()}`
+      quantities: {
+        long: userLongs.toString(),
+        short: userShorts.toString(),
+        difference: userLongs.minus(userShorts).toString()
+      },
+      pnl: {
+        long: userLongPnL.toString(),
+        short: userShortPnL.toString(),
+        total: userLongPnL.plus(userShortPnL).toString()
+      }
     });
 
     let liquidationResult = {

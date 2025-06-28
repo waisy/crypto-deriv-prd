@@ -30,7 +30,8 @@ class PositionLiquidationEngine {
             originalPositionId: originalPosition.id,
             side: originalPosition.side,
             size: new Decimal(originalPosition.size),
-            entryPrice: new Decimal(bankruptcyPrice), // LE's cost basis is bankruptcy price
+            entryPrice: new Decimal(originalPosition.avgEntryPrice), // Keep original entry price
+            bankruptcyPrice: new Decimal(bankruptcyPrice), // Store bankruptcy price separately
             originalEntryPrice: new Decimal(originalPosition.avgEntryPrice), // For audit trail
             transferTime: Date.now(),
             status: 'pending', // pending, attempting_orderbook, orderbook_failed, adl_required, completed
@@ -83,12 +84,22 @@ class PositionLiquidationEngine {
     calculatePositionPnL(position, currentPrice) {
         // Handle both Decimal objects and string representations
         const entryPrice = position.entryPrice instanceof Decimal ? 
-            position.entryPrice : new Decimal(position.entryPrice);
+            position.entryPrice : new Decimal(position.entryPrice || position.avgEntryPrice || 0);
         const size = position.size instanceof Decimal ? 
-            position.size : new Decimal(position.size);
+            position.size : new Decimal(position.size || 0);
         const currentPriceDec = currentPrice instanceof Decimal ? 
-            currentPrice : new Decimal(currentPrice);
+            currentPrice : new Decimal(currentPrice || 0);
         
+        // Calculate PnL consistently
+        if (typeof position.calculateUnrealizedPnL === 'function') {
+            return position.calculateUnrealizedPnL(currentPriceDec);
+        }
+        
+        if (position.unrealizedPnL) {
+            return new Decimal(position.unrealizedPnL);
+        }
+        
+        // Manual calculation as fallback
         const priceDiff = position.side === 'long' 
             ? currentPriceDec.minus(entryPrice)
             : entryPrice.minus(currentPriceDec);
@@ -176,7 +187,7 @@ class PositionLiquidationEngine {
         }, {});
 
         const totalSize = this.positions.reduce((sum, pos) => {
-            const size = pos.size instanceof Decimal ? pos.size : new Decimal(pos.size);
+            const size = pos.size instanceof Decimal ? pos.size : new Decimal(pos.size || 0);
             return sum.plus(size);
         }, new Decimal(0));
 
@@ -200,9 +211,9 @@ class PositionLiquidationEngine {
             const unrealizedPnL = this.calculatePositionPnL(position, currentPrice);
             return {
                 ...position,
-                size: position.size.toString(),
-                entryPrice: position.entryPrice.toString(),
-                unrealizedPnL: unrealizedPnL.toString(),
+                size: position.size, // Keep as Decimal
+                entryPrice: position.entryPrice, // Keep as Decimal
+                unrealizedPnL, // Keep as Decimal
                 timeSinceTransfer: Date.now() - position.transferTime
             };
         });
@@ -235,7 +246,7 @@ class PositionLiquidationEngine {
         let userShorts = new Decimal(0);
         
         for (const position of userPositions) {
-            const size = position.size instanceof Decimal ? position.size : new Decimal(position.size);
+            const size = position.size instanceof Decimal ? position.size : new Decimal(position.size || 0);
             if (position.side === 'long') {
                 userLongs = userLongs.plus(size);
             } else {
@@ -248,7 +259,7 @@ class PositionLiquidationEngine {
         let leShorts = new Decimal(0);
         
         for (const position of this.positions) {
-            const size = position.size instanceof Decimal ? position.size : new Decimal(position.size);
+            const size = position.size instanceof Decimal ? position.size : new Decimal(position.size || 0);
             if (position.side === 'long') {
                 leLongs = leLongs.plus(size);
             } else {

@@ -61,51 +61,120 @@ class Exchange {
 
   // Zero-sum invariant validation
   calculateZeroSum() {
-    let totalLong = new Decimal(0);
-    let totalShort = new Decimal(0);
+    let totalLongPnL = new Decimal(0);
+    let totalShortPnL = new Decimal(0);
+    let totalLongQty = new Decimal(0);
+    let totalShortQty = new Decimal(0);
+    
+    // Calculate PnL for a position
+    const calculatePnL = (position, isLiquidationPosition = false) => {
+      try {
+        if (isLiquidationPosition) {
+          return this.positionLiquidationEngine.calculatePositionPnL(position, this.currentMarkPrice);
+        }
+        
+        // For regular positions
+        if (typeof position.calculateUnrealizedPnL === 'function') {
+          return position.calculateUnrealizedPnL(this.currentMarkPrice);
+        }
+        
+        // Fallback if position has unrealizedPnL property
+        if (position.unrealizedPnL) {
+          return new Decimal(position.unrealizedPnL);
+        }
+        
+        console.error('Unable to calculate PnL for position:', position);
+        return new Decimal(0);
+      } catch (error) {
+        console.error('Error calculating PnL:', error);
+        return new Decimal(0);
+      }
+    };
     
     // User positions
     for (const [userId, position] of this.positions) {
+      const size = new Decimal(position.size);
+      const pnl = calculatePnL(position);
+      
       if (position.side === 'long') {
-        totalLong = totalLong.plus(position.size);
+        totalLongPnL = totalLongPnL.plus(pnl);
+        totalLongQty = totalLongQty.plus(size);
       } else {
-        totalShort = totalShort.plus(position.size);
+        totalShortPnL = totalShortPnL.plus(pnl);
+        totalShortQty = totalShortQty.plus(size);
       }
     }
     
     // Liquidation engine positions
-    const lePositions = this.positionLiquidationEngine.getPositionsWithPnL(this.currentMarkPrice);
+    const lePositions = this.positionLiquidationEngine.positions;
     for (const lePosition of lePositions) {
       const size = new Decimal(lePosition.size);
+      const pnl = calculatePnL(lePosition, true);
+      
       if (lePosition.side === 'long') {
-        totalLong = totalLong.plus(size);
+        totalLongPnL = totalLongPnL.plus(pnl);
+        totalLongQty = totalLongQty.plus(size);
       } else {
-        totalShort = totalShort.plus(size);
+        totalShortPnL = totalShortPnL.plus(pnl);
+        totalShortQty = totalShortQty.plus(size);
       }
     }
     
-    const difference = totalLong.minus(totalShort);
-    const isBalanced = difference.abs().lessThan(0.000001); // Allow for tiny rounding errors
+    const qtyDifference = totalLongQty.minus(totalShortQty);
+    const pnlDifference = totalLongPnL.plus(totalShortPnL); // Should sum to 0 (minus fees)
     
-    return {
-      totalLong: totalLong.toString(),
-      totalShort: totalShort.toString(),
-      difference: difference.toString(),
-      isBalanced,
+    const isQtyBalanced = qtyDifference.abs().lessThan(0.000001); // Allow for tiny rounding errors
+    const isPnLBalanced = pnlDifference.abs().lessThan(0.000001); // Allow for tiny rounding errors
+    
+    const result = {
+      quantities: {
+        long: totalLongQty.toString(),
+        short: totalShortQty.toString(),
+        difference: qtyDifference.toString()
+      },
+      pnl: {
+        long: totalLongPnL.toString(),
+        short: totalShortPnL.toString(),
+        total: pnlDifference.toString()
+      },
+      isQtyBalanced,
+      isPnLBalanced,
       userPositions: this.positions.size,
       liquidationPositions: lePositions.length
     };
+
+    // Log detailed PnL info for debugging
+    console.log('📊 ZERO-SUM CHECK DETAILS:', {
+      userPositions: Array.from(this.positions.entries()).map(([userId, pos]) => ({
+        userId,
+        side: pos.side,
+        size: pos.size.toString(),
+        pnl: calculatePnL(pos).toString()
+      })),
+      liquidationPositions: lePositions.map(pos => ({
+        id: pos.id,
+        side: pos.side,
+        size: pos.size.toString(),
+        pnl: calculatePnL(pos, true).toString()
+      }))
+    });
+
+    return result;
   }
 
   logZeroSumCheck(context) {
     const zeroSum = this.calculateZeroSum();
-    if (!zeroSum.isBalanced) {
+    if (!zeroSum.isQtyBalanced || !zeroSum.isPnLBalanced) {
       this.log('ERROR', `❌ ZERO-SUM INVARIANT VIOLATED - ${context}`, zeroSum);
       console.log('🚨🚨🚨 POSITIONS DO NOT BALANCE 🚨🚨🚨');
+      console.log('📊 IMBALANCE DETAILS:', {
+        quantities: zeroSum.quantities,
+        pnl: zeroSum.pnl
+      });
     } else {
       this.log('DEBUG', `✅ Zero-sum check passed - ${context}`, {
-        totalLong: zeroSum.totalLong,
-        totalShort: zeroSum.totalShort,
+        quantities: zeroSum.quantities,
+        pnl: zeroSum.pnl,
         userPositions: zeroSum.userPositions,
         liquidationPositions: zeroSum.liquidationPositions
       });
@@ -257,6 +326,36 @@ class Exchange {
   }
 
   updatePosition(userId, side, size, price, leverage) {
+    // Special case: liquidation engine positions should only be closed, never opened
+    if (userId === 'liquidation_engine') {
+      const position = this.positions.get(userId);
+      if (!position) {
+        this.log('ERROR', `❌ Liquidation engine position not found for closing`);
+        return;
+      }
+      
+      // Only allow trades that reduce/close the position
+      if (position.side === side) {
+        this.log('ERROR', `❌ Invalid liquidation engine trade - would increase position`);
+        return;
+      }
+      
+      this.log('INFO', `🔄 CLOSING LIQUIDATION ENGINE POSITION`, {
+        side: position.side,
+        size: position.size.toString(),
+        closingSize: size.toString()
+      });
+      
+      // Close the position
+      position.reduceSize(size, price);
+      if (position.size.isZero()) {
+        this.positions.delete(userId);
+        this.log('INFO', `✅ Liquidation engine position fully closed`);
+      }
+      return;
+    }
+
+    // Regular user position update logic
     const positionKey = userId;
     let position = this.positions.get(positionKey);
     let realizedPnL = new Decimal(0);
@@ -657,137 +756,89 @@ class Exchange {
         break;
 
       case 'adl':
-        console.log('🔄🔄🔄 STARTING ADL EXECUTION 🔄🔄🔄');
         this.log('INFO', `🔄 EXECUTING ADL for ${lePositions.length} liquidation positions`);
         
-        // Get all user positions first
-        console.log(`📊 All user positions (${this.positions.size}):`);
-        for (const [userId, position] of this.positions) {
-          position.updatePnL(this.currentMarkPrice);
-          console.log(`  ${userId}: ${position.side} ${position.size.toString()} BTC, PnL: $${position.unrealizedPnL.toString()}`);
-        }
-        
-        // Get all profitable user positions for ADL
-        const profitablePositions = Array.from(this.positions.values()).filter(pos => {
-          pos.updatePnL(this.currentMarkPrice);
-          return pos.unrealizedPnL.greaterThan(0);
-        });
-        
-        console.log(`💰 Found ${profitablePositions.length} profitable positions for ADL:`);
-        profitablePositions.forEach((pos, i) => {
-          console.log(`  ${i + 1}. ${pos.userId}: ${pos.side} ${pos.size.toString()} BTC, PnL: $${pos.unrealizedPnL.toString()}`);
-        });
-        
-        if (profitablePositions.length === 0) {
-          console.log('❌ No profitable positions available for ADL');
-          this.log('WARN', 'No profitable positions available for ADL');
-          return {
-            success: false,
-            error: 'No profitable positions for ADL',
-            state: this.getState()
-          };
-        }
-
         for (const lePosition of lePositions) {
-          console.log(`\n🎯 Processing liquidation position ${lePosition.id}:`);
           try {
-            console.log(`  Original position: ${lePosition.originalUserId} ${lePosition.side} ${lePosition.size} BTC @ $${lePosition.entryPrice}`);
-            console.log(`  Current mark price: $${this.currentMarkPrice.toString()}`);
+            // Plan the ADL trades first
+            const adlPlan = this.adlEngine.planADL(lePosition, this.positions, this.currentMarkPrice);
             
-            // Calculate how much loss this position represents
-            const positionPnL = this.positionLiquidationEngine.calculatePositionPnL(
-              lePosition, 
-              this.currentMarkPrice
-            );
-            
-            console.log(`  Position P&L: $${positionPnL.toString()}`);
-            console.log(`  Is negative (loss): ${positionPnL.isNegative()}`);
-            
-            if (positionPnL.isNegative()) {
-              const adlAmount = positionPnL.abs();
-              console.log(`  📉 ADL needed for loss of $${adlAmount.toString()}`);
-              this.log('INFO', `Executing ADL for $${adlAmount.toString()} loss from position ${lePosition.id}`);
+            if (!adlPlan.success) {
+              this.log('ERROR', `❌ ADL PLANNING FAILED for position ${lePosition.id}`, adlPlan.error);
+              results.push({ positionId: lePosition.id, method: 'adl', success: false, error: adlPlan.error });
+              continue;
+            }
+
+            this.log('INFO', `✅ ADL PLAN CREATED for position ${lePosition.id}`, { trades: adlPlan.trades });
+
+            // Execute the forced trades from the plan
+            for (const adlTrade of adlPlan.trades) {
+              const { counterpartyUserId, size, price } = adlTrade;
               
-              // Execute ADL against profitable positions
-              const bankruptPosition = { 
-                side: lePosition.side, 
-                avgEntryPrice: new Decimal(lePosition.entryPrice) 
+              // For ADL, we want to close both positions
+              // The LE position needs to do the OPPOSITE of their current side to close
+              const leSide = lePosition.side === 'long' ? 'sell' : 'buy';  // CLOSE by doing opposite
+              const counterpartySide = leSide === 'buy' ? 'sell' : 'buy';
+              
+              this.log('INFO', `🔨 PLANNING ADL TRADE`, {
+                lePositionId: lePosition.id,
+                originalUserId: lePosition.originalUserId,
+                counterparty: counterpartyUserId,
+                lePositionSide: lePosition.side,
+                closingSide: leSide,
+                size,
+                price
+              });
+
+              // Create synthetic orders for the forced trade
+              const leOrder = {
+                userId: 'liquidation_engine', // Must use liquidation_engine ID to properly close the position
+                side: leSide,
+                originalSize: new Decimal(size),
+                leverage: 1 // Default leverage for liquidation trades
               };
               
-              console.log(`  🏦 Bankrupt position details:`, {
-                side: bankruptPosition.side,
-                avgEntryPrice: bankruptPosition.avgEntryPrice.toString()
-              });
+              const counterpartyOrder = {
+                userId: counterpartyUserId,
+                side: counterpartySide,
+                originalSize: new Decimal(size),
+                leverage: 1 // Default leverage for liquidation trades
+              };
               
-              console.log(`  🔄 Calling ADL engine...`);
-              const adlResult = this.adlEngine.executeADL(
-                new Map(Array.from(this.positions.entries())),
-                adlAmount,
-                bankruptPosition
-              );
+              // Create a match object
+              const syntheticMatch = {
+                buyOrder: leSide === 'buy' ? leOrder : counterpartyOrder,
+                sellOrder: leSide === 'sell' ? leOrder : counterpartyOrder,
+                price: new Decimal(price),
+                size: new Decimal(size)
+              };
               
-              console.log(`  📋 ADL result:`, adlResult);
+              // Process the trade - this updates positions for both parties
+              this.processTrade(syntheticMatch);
               
-              if (adlResult && adlResult.success) {
-                console.log(`  ✅ ADL SUCCEEDED!`);
-                // Remove the liquidation position
-                const closureResult = this.positionLiquidationEngine.removePosition(
-                  lePosition.id,
-                  'adl',
-                  this.currentMarkPrice
-                );
-                
-                console.log(`  🗑️ Position removal result:`, closureResult);
-                
-                results.push({
-                  positionId: lePosition.id,
-                  method: 'adl',
-                  adlAmount: adlAmount.toString(),
-                  adlParticipants: adlResult.participants || 0,
-                  realizedPnL: closureResult?.realizedPnL?.toString() || '0',
-                  success: true
-                });
-                
-                executedCount++;
-                this.log('INFO', `✅ ADL SUCCESS: Closed position ${lePosition.id} via ADL`);
-              } else {
-                console.log(`  ❌ ADL FAILED! Result:`, adlResult);
-                this.log('ERROR', `❌ ADL FAILED for position ${lePosition.id}`, adlResult);
-                results.push({
-                  positionId: lePosition.id,
-                  method: 'adl',
-                  error: adlResult ? `ADL failed: ${JSON.stringify(adlResult)}` : 'ADL execution failed',
-                  success: false
-                });
-              }
-            } else {
-              console.log(`  ✅ Position is profitable ($${positionPnL.toString()}), no ADL needed`);
-              this.log('INFO', `Position ${lePosition.id} is profitable, no ADL needed`);
-              results.push({
-                positionId: lePosition.id,
-                method: 'adl',
-                error: 'Position is profitable',
-                success: false
+              // Log the trade outcome
+              this.log('INFO', `✅ ADL TRADE EXECUTED`, {
+                lePositionId: lePosition.id,
+                originalUserId: lePosition.originalUserId,
+                counterparty: counterpartyUserId,
+                size: size.toString(),
+                price: price.toString(),
+                lePositionSide: lePosition.side,
+                closingSide: leSide
               });
             }
+            
+            // The LE position should now be fully closed
+            this.positionLiquidationEngine.removePosition(lePosition.id, 'adl', new Decimal(adlPlan.trades[0].price));
+
+            results.push({ positionId: lePosition.id, method: 'adl', success: true });
+            executedCount++;
+            
           } catch (error) {
-            console.log(`  ❌ EXCEPTION in ADL processing:`, {
-              message: error.message,
-              stack: error.stack
-            });
-            this.log('ERROR', `ADL failed for position ${lePosition.id}:`, {
-              message: error.message,
-              stack: error.stack
-            });
-            results.push({
-              positionId: lePosition.id,
-              method: 'adl',
-              error: error.message,
-              success: false
-            });
+            this.log('ERROR', `ADL failed for position ${lePosition.id}:`, error);
+            results.push({ positionId: lePosition.id, method: 'adl', error: error.message, success: false });
           }
         }
-        console.log('🔄🔄🔄 ADL EXECUTION COMPLETED 🔄🔄🔄\n');
         break;
 
       case 'force':
@@ -908,5 +959,4 @@ class Exchange {
   }
 }
 
-module.exports = { Exchange };
 module.exports = { Exchange };
