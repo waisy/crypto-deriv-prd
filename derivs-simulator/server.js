@@ -23,10 +23,10 @@ wss.on('connection', (ws) => {
   const clientId = uuidv4();
   clients.set(clientId, ws);
   
-  ws.on('message', (message) => {
+  ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
-      const response = exchange.handleMessage(data);
+      const response = await exchange.handleMessage(data);
       
       // Broadcast to all clients for real-time updates
       const broadcastData = {
@@ -60,18 +60,24 @@ app.get('/api/state', (req, res) => {
   res.json(exchange.getState());
 });
 
-app.post('/api/order', (req, res) => {
+app.post('/api/order', async (req, res) => {
   try {
-    const result = exchange.placeOrder(req.body);
+    const result = await exchange.handleMessage({
+      type: 'place_order',
+      ...req.body
+    });
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.post('/api/price', (req, res) => {
+app.post('/api/price', async (req, res) => {
   try {
-    const result = exchange.updateMarkPrice(req.body.price);
+    const result = await exchange.handleMessage({
+      type: 'update_mark_price',
+      price: req.body.price
+    });
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
