@@ -12,6 +12,7 @@ A comprehensive guide to building and understanding derivatives crypto exchanges
 
 ### Risk Management
 - [Liquidation Mechanics](./docs/liquidation.md)
+- [Liquidation Price Calculation](./docs/liquidation-price-calculation.md)
 - [Bankruptcy Price Calculation](./docs/bankruptcy-price.md)
 - [Position Management](./docs/position-management.md)
 - [Auto-Deleveraging (ADL)](./docs/adl.md)

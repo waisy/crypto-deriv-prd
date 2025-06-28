@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Derivatives Exchange Simulator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <h1>Derivatives Exchange Simulator</h1>
+            <div class="price-display">
+                <div class="mark-price" id="markPrice">$45,000.00</div>
+            </div>
+            <div class="user-tabs">
+                <div class="user-tab active" data-user="user1">User 1</div>
+                <div class="user-tab" data-user="user2">User 2</div>
+            </div>
+        </header>
+
+        <main class="main-grid">
+            <!-- Left Panel - Trading -->
+            <div class="panel">
+                <h3>Trading</h3>
+                
+                <div class="user-switcher">
+                    <label>Active User:</label>
+                    <div id="currentUser">User 1</div>
+                </div>
+
+                <div class="side-buttons">
+                    <div class="btn-side buy active" data-side="buy">BUY</div>
+                    <div class="btn-side sell" data-side="sell">SELL</div>
+                </div>
+
+                <form id="orderForm">
+                    <div class="form-row">
+                        <label>Order Type</label>
+                        <select id="orderType">
+                            <option value="limit">Limit</option>
+                            <option value="market">Market</option>
+                        </select>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Size (BTC)</label>
+                        <input type="number" id="orderSize" step="0.001" min="0.001" placeholder="0.001">
+                    </div>
+
+                    <div class="form-row" id="priceRow">
+                        <label>Price (USD)</label>
+                        <input type="number" id="orderPrice" step="0.01" min="1" placeholder="45000">
+                    </div>
+
+                    <div class="form-row">
+                        <label>Leverage</label>
+                        <select id="leverage">
+                            <option value="1">1x</option>
+                            <option value="2">2x</option>
+                            <option value="5">5x</option>
+                            <option value="10" selected>10x</option>
+                            <option value="20">20x</option>
+                            <option value="50">50x</option>
+                            <option value="100">100x</option>
+                        </select>
+                    </div>
+
+                    <div class="margin-info" id="marginInfo">
+                        Margin Required: $0.00
+                    </div>
+
+                    <button type="submit" class="btn-primary" id="placeOrderBtn">
+                        Place Buy Order
+                    </button>
+                </form>
+
+                <h4>Quick Actions</h4>
+                <div class="form-row">
+                    <label>Update Mark Price</label>
+                    <input type="number" id="newMarkPrice" step="0.01" placeholder="New price">
+                    <button class="btn-secondary" onclick="updateMarkPrice()">Update Price</button>
+                </div>
+            </div>
+
+            <!-- Center Panel - Order Book & Trades -->
+            <div class="panel center-panel">
+                <div class="orderbook-section">
+                    <h3>Order Book</h3>
+                    <div class="orderbook-mini">
+                        <div class="asks" id="asks">
+                            <h4>Asks</h4>
+                            <div class="no-orders">No sell orders</div>
+                        </div>
+                        
+                        <div class="spread-mini" id="spread">
+                            Spread: -
+                        </div>
+                        
+                        <div class="bids" id="bids">
+                            <h4>Bids</h4>
+                            <div class="no-orders">No buy orders</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="positions-section">
+                    <h3>Recent Trades</h3>
+                    <div class="trades-mini" id="trades">
+                        <div class="no-trades">No trades yet</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Positions & User Info -->
+            <div class="panel">
+                <div class="user-section">
+                    <h3>User Information</h3>
+                    <div id="userInfo">
+                        <h4 id="userName">User 1</h4>
+                        <div class="user-info">
+                            <div class="info-row">
+                                <span>Available Balance:</span>
+                                <span id="availableBalance">$100,000.00</span>
+                            </div>
+                            <div class="info-row">
+                                <span>Used Margin:</span>
+                                <span id="usedMargin">$0.00</span>
+                            </div>
+                            <div class="info-row">
+                                <span>Total PnL:</span>
+                                <span id="totalPnL" class="pnl">$0.00</span>
+                            </div>
+                            <div class="info-row">
+                                <span>Leverage:</span>
+                                <span id="userLeverage">10x</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="positions-section">
+                    <h3>Positions</h3>
+                    <div class="positions-container" id="positions">
+                        <div class="no-positions">No open positions</div>
+                    </div>
+                </div>
+
+                <div class="adl-queue">
+                    <h3>ADL Queue</h3>
+                    <div id="adlQueue">
+                        <div class="no-adl">No positions in ADL queue</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Price Update Modal -->
+    <div class="modal" id="priceModal">
+        <div class="modal-content">
+            <h3>Update Mark Price</h3>
+            <input type="number" id="modalPriceInput" placeholder="Enter new price">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn-primary" onclick="confirmPriceUpdate()">Update</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let currentUser = 'user1';
+        let currentSide = 'buy';
+        let exchangeState = null;
+
+        // WebSocket connection
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}`);
+            
+            ws.onopen = function() {
+                console.log('Connected to exchange');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.type === 'init' || data.type === 'update') {
+                    exchangeState = data.state;
+                    updateUI();
+                }
+                if (data.error) {
+                    showError(data.error);
+                }
+            };
+            
+            ws.onclose = function() {
+                console.log('Disconnected from exchange');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        // UI Event Handlers
+        document.addEventListener('DOMContentLoaded', function() {
+            // User tab switching
+            document.querySelectorAll('.user-tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    document.querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    currentUser = this.dataset.user;
+                    document.getElementById('currentUser').textContent = currentUser === 'user1' ? 'User 1' : 'User 2';
+                    updateUserInfo();
+                });
+            });
+
+            // Side button switching
+            document.querySelectorAll('.btn-side').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.btn-side').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentSide = this.dataset.side;
+                    updatePlaceOrderButton();
+                });
+            });
+
+            // Order type change
+            document.getElementById('orderType').addEventListener('change', function() {
+                const priceRow = document.getElementById('priceRow');
+                if (this.value === 'market') {
+                    priceRow.style.display = 'none';
+                } else {
+                    priceRow.style.display = 'block';
+                }
+            });
+
+            // Form submission
+            document.getElementById('orderForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                placeOrder();
+            });
+
+            // Input changes for margin calculation
+            ['orderSize', 'orderPrice', 'leverage'].forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.addEventListener('input', calculateMargin);
+                }
+            });
+
+            connectWebSocket();
+        });
+
+        function placeOrder() {
+            const orderData = {
+                type: 'place_order',
+                userId: currentUser,
+                side: currentSide,
+                size: parseFloat(document.getElementById('orderSize').value),
+                price: document.getElementById('orderType').value === 'market' ? null : parseFloat(document.getElementById('orderPrice').value),
+                orderType: document.getElementById('orderType').value,
+                leverage: parseInt(document.getElementById('leverage').value)
+            };
+
+            if (!orderData.size || orderData.size <= 0) {
+                showError('Please enter a valid size');
+                return;
+            }
+
+            if (orderData.orderType === 'limit' && (!orderData.price || orderData.price <= 0)) {
+                showError('Please enter a valid price for limit orders');
+                return;
+            }
+
+            ws.send(JSON.stringify(orderData));
+            
+            // Reset form
+            document.getElementById('orderSize').value = '';
+            document.getElementById('orderPrice').value = '';
+        }
+
+        function updateMarkPrice() {
+            const newPrice = parseFloat(document.getElementById('newMarkPrice').value);
+            if (!newPrice || newPrice <= 0) {
+                showError('Please enter a valid price');
+                return;
+            }
+
+            ws.send(JSON.stringify({
+                type: 'update_mark_price',
+                price: newPrice
+            }));
+
+            document.getElementById('newMarkPrice').value = '';
+        }
+
+        function calculateMargin() {
+            const size = parseFloat(document.getElementById('orderSize').value) || 0;
+            const price = parseFloat(document.getElementById('orderPrice').value) || (exchangeState ? exchangeState.markPrice : 45000);
+            const leverage = parseInt(document.getElementById('leverage').value) || 10;
+            
+            const notional = size * price;
+            const margin = notional / leverage;
+            
+            document.getElementById('marginInfo').textContent = `Margin Required: $${margin.toFixed(2)}`;
+        }
+
+        function updatePlaceOrderButton() {
+            const btn = document.getElementById('placeOrderBtn');
+            btn.textContent = `Place ${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} Order`;
+        }
+
+        function updateUI() {
+            if (!exchangeState) return;
+
+            // Update mark price
+            document.getElementById('markPrice').textContent = `$${exchangeState.markPrice?.toLocaleString() || '45,000.00'}`;
+
+            // Update order book
+            updateOrderBook();
+            
+            // Update user info
+            updateUserInfo();
+            
+            // Update positions
+            updatePositions();
+            
+            // Update trades
+            updateTrades();
+        }
+
+        function updateOrderBook() {
+            if (!exchangeState.orderBook) return;
+
+            const asksContainer = document.getElementById('asks');
+            const bidsContainer = document.getElementById('bids');
+            const spreadContainer = document.getElementById('spread');
+
+            // Clear existing orders
+            asksContainer.innerHTML = '<h4>Asks</h4>';
+            bidsContainer.innerHTML = '<h4>Bids</h4>';
+
+            // Update asks
+            if (exchangeState.orderBook.asks && exchangeState.orderBook.asks.length > 0) {
+                exchangeState.orderBook.asks.forEach(level => {
+                    const orderDiv = document.createElement('div');
+                    orderDiv.className = 'order-level ask';
+                    orderDiv.innerHTML = `<span>$${level.price}</span><span>${level.size}</span>`;
+                    asksContainer.appendChild(orderDiv);
+                });
+            } else {
+                const noOrders = document.createElement('div');
+                noOrders.className = 'no-orders';
+                noOrders.textContent = 'No sell orders';
+                asksContainer.appendChild(noOrders);
+            }
+
+            // Update bids
+            if (exchangeState.orderBook.bids && exchangeState.orderBook.bids.length > 0) {
+                exchangeState.orderBook.bids.forEach(level => {
+                    const orderDiv = document.createElement('div');
+                    orderDiv.className = 'order-level bid';
+                    orderDiv.innerHTML = `<span>$${level.price}</span><span>${level.size}</span>`;
+                    bidsContainer.appendChild(orderDiv);
+                });
+            } else {
+                const noOrders = document.createElement('div');
+                noOrders.className = 'no-orders';
+                noOrders.textContent = 'No buy orders';
+                bidsContainer.appendChild(noOrders);
+            }
+
+            // Update spread
+            if (exchangeState.orderBook.spread !== null) {
+                spreadContainer.textContent = `Spread: $${exchangeState.orderBook.spread}`;
+            } else {
+                spreadContainer.textContent = 'Spread: -';
+            }
+        }
+
+        function updateUserInfo() {
+            if (!exchangeState.users) return;
+
+            const user = exchangeState.users.find(u => u.id === currentUser);
+            if (!user) return;
+
+            document.getElementById('userName').textContent = user.name || currentUser;
+            document.getElementById('availableBalance').textContent = `$${user.availableBalance?.toFixed(2) || '0.00'}`;
+            document.getElementById('usedMargin').textContent = `$${user.usedMargin?.toFixed(2) || '0.00'}`;
+            document.getElementById('userLeverage').textContent = `${user.leverage || 10}x`;
+            
+            // Calculate total PnL from positions
+            const userPositions = exchangeState.positions?.filter(p => p.userId === currentUser) || [];
+            const totalPnL = userPositions.reduce((sum, pos) => sum + (pos.unrealizedPnL || 0), 0);
+            const pnlElement = document.getElementById('totalPnL');
+            pnlElement.textContent = `$${totalPnL.toFixed(2)}`;
+            pnlElement.className = `pnl ${totalPnL >= 0 ? 'positive' : 'negative'}`;
+        }
+
+        function updatePositions() {
+            const positionsContainer = document.getElementById('positions');
+            positionsContainer.innerHTML = '';
+
+            const userPositions = exchangeState.positions?.filter(p => p.userId === currentUser) || [];
+
+            if (userPositions.length === 0) {
+                const noPositions = document.createElement('div');
+                noPositions.className = 'no-positions';
+                noPositions.textContent = 'No open positions';
+                positionsContainer.appendChild(noPositions);
+                return;
+            }
+
+            userPositions.forEach(position => {
+                const positionDiv = document.createElement('div');
+                positionDiv.className = 'position-item-mini';
+                positionDiv.innerHTML = `
+                    <div class="position-header">
+                        <span class="position-side ${position.side}">${position.side.toUpperCase()}</span>
+                        <span>${position.size} BTC</span>
+                    </div>
+                    <div class="position-details">
+                        <div>Entry: $${position.avgEntryPrice?.toFixed(2) || '0.00'}</div>
+                        <div class="pnl ${(position.unrealizedPnL || 0) >= 0 ? 'positive' : 'negative'}">
+                            PnL: $${position.unrealizedPnL?.toFixed(2) || '0.00'}
+                        </div>
+                        <div>Liq: $${position.liquidationPrice?.toFixed(2) || 'N/A'}</div>
+                    </div>
+                `;
+                positionsContainer.appendChild(positionDiv);
+            });
+        }
+
+        function updateTrades() {
+            const tradesContainer = document.getElementById('trades');
+            tradesContainer.innerHTML = '';
+
+            if (!exchangeState.trades || exchangeState.trades.length === 0) {
+                const noTrades = document.createElement('div');
+                noTrades.className = 'no-trades';
+                noTrades.textContent = 'No trades yet';
+                tradesContainer.appendChild(noTrades);
+                return;
+            }
+
+            // Show last 10 trades
+            const recentTrades = exchangeState.trades.slice(-10).reverse();
+            
+            recentTrades.forEach(trade => {
+                const tradeDiv = document.createElement('div');
+                tradeDiv.className = 'trade-item';
+                tradeDiv.innerHTML = `
+                    <div class="trade-price">${trade.size} @ $${trade.price}</div>
+                    <div class="trade-time">${new Date(trade.timestamp).toLocaleTimeString()}</div>
+                `;
+                tradesContainer.appendChild(tradeDiv);
+            });
+        }
+
+        function showError(message) {
+            // You can implement a proper error display here
+            console.error(message);
+            alert(message); // Temporary error display
+        }
+    </script>
+</body>
+</html> 
