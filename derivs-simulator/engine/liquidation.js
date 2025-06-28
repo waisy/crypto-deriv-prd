@@ -1,12 +1,13 @@
 const { Decimal } = require('decimal.js');
 
 class LiquidationEngine {
-  constructor(matchingEngine = null, orderBook = null, marginCalculator = null) {
+  constructor(matchingEngine = null, orderBook = null, marginCalculator = null, adlEngine = null) {
     this.liquidationFeeRate = new Decimal(0.005); // 0.5% liquidation fee
     this.insuranceFund = new Decimal(1000000); // $1M insurance fund
     this.matchingEngine = matchingEngine;
     this.orderBook = orderBook;
     this.marginCalculator = marginCalculator;
+    this.adlEngine = adlEngine;
     this.liquidationQueue = [];
     this.isProcessingQueue = false;
     
@@ -34,14 +35,15 @@ class LiquidationEngine {
     });
     
     console.log(`Manual insurance fund adjustment: ${type} of $${decAmount.abs()}. New balance: $${this.insuranceFund}`);
-    return { success: true, newBalance: this.insuranceFund.toNumber() };
+    return { success: true, newBalance: this.insuranceFund.toString() };
   }
 
   // Set references to matching engine and order book (for dependency injection)
-  setReferences(matchingEngine, orderBook, marginCalculator) {
+  setReferences(matchingEngine, orderBook, marginCalculator, adlEngine) {
     this.matchingEngine = matchingEngine;
     this.orderBook = orderBook;
     this.marginCalculator = marginCalculator;
+    this.adlEngine = adlEngine;
   }
 
   shouldLiquidate(position, currentPrice) {
@@ -78,7 +80,7 @@ class LiquidationEngine {
   }
 
   // NEW: Real liquidation with market order execution
-  async liquidate(position, currentPrice, forceMode = false) {
+  async liquidate(position, currentPrice, allPositions, forceMode = false) {
     const decCurrentPrice = new Decimal(currentPrice);
     const liquidationFee = position.size.times(decCurrentPrice).times(this.liquidationFeeRate);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
@@ -117,7 +119,7 @@ class LiquidationEngine {
         liquidationResult = this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
       }
 
-      this.updateInsuranceFund(liquidationResult);
+      this.updateInsuranceFund(liquidationResult, allPositions);
 
       return liquidationResult;
 
@@ -202,8 +204,8 @@ class LiquidationEngine {
     return liquidationResult;
   }
 
-  updateInsuranceFund(liquidationResult) {
-    const { remainingBalance, liquidationFee, totalExecuted, executionPrice, side, entryPrice, initialMargin, userId } = liquidationResult;
+  updateInsuranceFund(liquidationResult, allPositions) {
+    const { remainingBalance, liquidationFee, totalExecuted, executionPrice, side, entryPrice, initialMargin, userId, bankruptcyPrice } = liquidationResult;
     
     console.log(`Updating insurance fund - Liquidation fee: $${liquidationFee.toFixed(2)}, totalExecuted: ${totalExecuted}, remainingBalance: $${remainingBalance.toFixed(2)}`);
     
@@ -213,12 +215,13 @@ class LiquidationEngine {
       type: 'liquidation_fee',
       amount: liquidationFee,
       balance: this.insuranceFund,
-      description: `Liquidation fee from ${userId} (${side} ${totalExecuted} BTC @ $${executionPrice})`
+      description: `Liquidation fee from ${userId}`
     });
     
-    console.log(`Insurance fund gains fee: $${liquidationFee.toFixed(2)}, new balance: $${this.insuranceFund.toNumber().toFixed(2)}`);
+    console.log(`Insurance fund gains fee: $${liquidationFee.toFixed(2)}, new balance: $${this.insuranceFund.toString()}`);
     
     if (remainingBalance.isZero()) {
+      const bankruptPosition = { side, avgEntryPrice: bankruptcyPrice };
       let actualLoss;
       if (side === 'long') {
         actualLoss = Decimal.max(0, new Decimal(entryPrice).minus(executionPrice).times(totalExecuted));
@@ -231,17 +234,43 @@ class LiquidationEngine {
       const decInitialMargin = new Decimal(initialMargin || 0);
       if (actualLoss.greaterThan(decInitialMargin)) {
         const shortfall = actualLoss.minus(decInitialMargin);
-        this.insuranceFund = this.insuranceFund.minus(shortfall);
-        liquidationResult.insuranceFundLoss = shortfall;
         
-        this.recordInsuranceFundChange({
-          type: 'bankruptcy_payout',
-          amount: shortfall.negated(),
-          balance: this.insuranceFund,
-          description: `Bankruptcy coverage for ${userId}. Shortfall: $${shortfall.toFixed(2)}`
-        });
-        
-        console.log(`Insurance fund pays shortfall: $${shortfall.toFixed(2)}, new balance: $${this.insuranceFund.toNumber().toFixed(2)}`);
+        if (this.insuranceFund.gte(shortfall)) {
+          // Insurance fund can cover the entire loss
+          this.insuranceFund = this.insuranceFund.minus(shortfall);
+          liquidationResult.insuranceFundLoss = shortfall;
+          
+          this.recordInsuranceFundChange({
+            type: 'bankruptcy_payout',
+            amount: shortfall.negated(),
+            balance: this.insuranceFund,
+            description: `Bankruptcy coverage for ${userId}. Shortfall: $${shortfall.toFixed(2)}`
+          });
+          
+        } else {
+          // Insurance fund is insufficient, trigger ADL
+          const insurancePayout = this.insuranceFund;
+          const adlAmount = shortfall.minus(insurancePayout);
+          
+          this.insuranceFund = new Decimal(0);
+          liquidationResult.insuranceFundLoss = insurancePayout;
+          
+          this.recordInsuranceFundChange({
+            type: 'bankruptcy_payout_drained',
+            amount: insurancePayout.negated(),
+            balance: this.insuranceFund,
+            description: `Insurance fund drained for ${userId}. Payout: $${insurancePayout.toFixed(2)}, ADL required for $${adlAmount.toFixed(2)}`
+          });
+          
+          if (this.adlEngine) {
+            console.log(`ADL triggered for shortfall of $${adlAmount.toFixed(2)}`);
+            const adlResult = this.adlEngine.executeADL(allPositions, adlAmount, bankruptPosition);
+            liquidationResult.adlResult = adlResult;
+          } else {
+            console.error("ADL Engine not available! System is at risk.");
+            // In a real system, this would be a critical alert
+          }
+        }
       }
     }
     
@@ -262,7 +291,7 @@ class LiquidationEngine {
     const sanitizedResult = { ...liquidationResult };
     for (const key in sanitizedResult) {
       if (sanitizedResult[key] instanceof Decimal) {
-        sanitizedResult[key] = sanitizedResult[key].toNumber();
+        sanitizedResult[key] = sanitizedResult[key].toString();
       }
     }
     this.liquidationHistory.push(sanitizedResult);
@@ -344,7 +373,7 @@ class LiquidationEngine {
       initialMargin: position.initialMargin * reductionPercentage
     };
     
-    const liquidation = this.liquidate(partialPosition, currentPrice, true); // Force mode for partials
+    const liquidation = this.liquidate(partialPosition, currentPrice, [], true); // Force mode for partials
     
     // Update the original position
     position.size = remainingSize;
@@ -361,7 +390,7 @@ class LiquidationEngine {
   }
 
   getInsuranceFundBalance() {
-    return this.insuranceFund.toNumber();
+    return this.insuranceFund.toString();
   }
 
   // Check if system is at risk (insurance fund low)
@@ -391,16 +420,16 @@ class LiquidationEngine {
   // Get insurance fund history
   getInsuranceFundHistory() {
     return {
-      currentBalance: this.insuranceFund.toNumber(),
+      currentBalance: this.insuranceFund.toString(),
       history: this.insuranceFundHistory.map(item => ({
         ...item,
-        amount: item.amount.toNumber(),
-        balance: item.balance.toNumber()
+        amount: item.amount.toString(),
+        balance: item.balance.toString()
       })).slice().reverse(),
       liquidations: this.liquidationHistory.map(liq => {
         const sanitized = {};
         for(const key in liq) {
-            sanitized[key] = (liq[key] instanceof Decimal) ? liq[key].toNumber() : liq[key];
+            sanitized[key] = (liq[key] instanceof Decimal) ? liq[key].toString() : liq[key];
         }
         return sanitized;
       }).slice().reverse(),
@@ -435,17 +464,17 @@ class LiquidationEngine {
     const growthPercentage = initialBalance.isZero() ? new Decimal(0) : totalGrowth.dividedBy(initialBalance).times(100);
 
     const summary = {
-      initialBalance: initialBalance.toNumber(),
-      currentBalance: this.insuranceFund.toNumber(),
-      totalDeposits: totalDeposits.toNumber(),
-      totalWithdrawals: totalWithdrawals.toNumber(),
-      totalFeesCollected: totalFees.toNumber(),
-      totalPayouts: totalPayouts.toNumber(),
-      netOperationalGain: totalFees.minus(totalPayouts).toNumber(),
+      initialBalance: initialBalance.toString(),
+      currentBalance: this.insuranceFund.toString(),
+      totalDeposits: totalDeposits.toString(),
+      totalWithdrawals: totalWithdrawals.toString(),
+      totalFeesCollected: totalFees.toString(),
+      totalPayouts: totalPayouts.toString(),
+      netOperationalGain: totalFees.minus(totalPayouts).toString(),
       totalLiquidations: this.liquidationHistory.length,
       sideBreakdown,
-      totalGrowth: totalGrowth.toNumber(),
-      growthPercentage: growthPercentage.toNumber()
+      totalGrowth: totalGrowth.toString(),
+      growthPercentage: growthPercentage.toString()
     };
     
     // Additional fields expected by the frontend

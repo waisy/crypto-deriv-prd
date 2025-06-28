@@ -80,8 +80,8 @@ class MarginCalculator {
     const maintenanceMargin = this.calculateMaintenanceMargin(position.size, decCurrentPrice);
     const equity = decAvailableBalance.plus(position.unrealizedPnL);
     
-    if (maintenanceMargin.isZero()) return Infinity;
-    return equity.dividedBy(maintenanceMargin).times(100).toNumber();
+    if (maintenanceMargin.isZero()) return null;
+    return equity.dividedBy(maintenanceMargin).times(100);
   }
 
   // Calculate maximum position size for given margin

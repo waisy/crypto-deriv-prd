@@ -847,3 +847,248 @@ body {
     border-color: rgba(255, 71, 87, 0.5);
     transform: scale(1.05);
 }
+
+/* Enhanced panel styles */
+.user-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.info-label {
+    color: #8892b0;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.info-value {
+    color: #e1e1e1;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.85rem;
+}
+
+.detail-label {
+    color: #8892b0;
+    font-weight: 500;
+}
+
+.detail-value {
+    color: #e1e1e1;
+    font-weight: 600;
+}
+
+.position-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.position-pnl {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.order-size-row, .order-price, .order-value {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    padding: 2px 0;
+}
+
+.order-size-row.remaining {
+    color: #8892b0;
+}
+
+.size-label, .price-label, .value-label {
+    color: #8892b0;
+    font-weight: 500;
+}
+
+.size-value, .price-value, .value-amount {
+    color: #e1e1e1;
+    font-weight: 600;
+}
+
+.order-time {
+    color: #64ffda;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.value-warning {
+    color: #ffa726 !important;
+}
+
+.value-caution {
+    color: #ffcc02 !important;
+}
+
+.value-danger {
+    color: #ff4757 !important;
+}
+
+.pnl-positive {
+    color: #00d4aa !important;
+}
+
+.pnl-negative {
+    color: #ff4757 !important;
+}
+
+.progress-fill.buy {
+    background: linear-gradient(90deg, #00d4aa, #00b894);
+}
+
+.progress-fill.sell {
+    background: linear-gradient(90deg, #ff4757, #e84393);
+}
+
+/* Table layouts for positions and orders */
+.table-container {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #2a2f3e;
+    border-radius: 6px;
+    background: #0a0e1a;
+}
+
+.positions-table, .orders-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    background: transparent;
+}
+
+.positions-table th, .orders-table th {
+    background: #1a1f2e;
+    color: #8892b0;
+    font-weight: 600;
+    padding: 8px 6px;
+    text-align: left;
+    border-bottom: 1px solid #2a2f3e;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.positions-table td, .orders-table td {
+    padding: 6px;
+    border-bottom: 1px solid #1a1f2e;
+    color: #e1e1e1;
+}
+
+.position-row:hover, .order-row:hover {
+    background: rgba(247, 147, 26, 0.05);
+}
+
+.no-data-row td {
+    text-align: center;
+    color: #8892b0;
+    font-style: italic;
+    padding: 20px;
+}
+
+/* Side cells */
+.side-cell {
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.side-long {
+    color: #00d4aa;
+}
+
+.side-short {
+    color: #ff4757;
+}
+
+/* Numeric cells */
+.size-cell, .price-cell, .filled-cell, .pnl-cell, .roe-cell {
+    text-align: right;
+    font-family: 'Courier New', monospace;
+}
+
+.pnl-cell.pnl-positive, .roe-cell.pnl-positive {
+    color: #00d4aa;
+}
+
+.pnl-cell.pnl-negative, .roe-cell.pnl-negative {
+    color: #ff4757;
+}
+
+/* Status cell */
+.status-cell {
+    text-transform: capitalize;
+    color: #8892b0;
+}
+
+.status-cell.new {
+    color: #64ffda;
+}
+
+.status-cell.partially-filled {
+    color: #f7931a;
+}
+
+.status-cell.filled {
+    color: #00d4aa;
+}
+
+/* Filled cell */
+.filled-cell {
+    text-align: right;
+}
+
+.filled-percent {
+    color: #8892b0;
+    font-size: 0.8rem;
+    margin-left: 4px;
+}
+
+/* Action cell */
+.action-cell {
+    text-align: center;
+    width: 40px;
+}
+
+.cancel-btn {
+    background: #ff4757;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 6px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: opacity 0.2s;
+    line-height: 1;
+}
+
+.cancel-btn:hover {
+    opacity: 0.8;
+}
+
+/* Enhanced warning colors for liquidation prices */
+.positions-table .value-warning {
+    color: #f7931a !important;
+    font-weight: 600;
+}
+
+.positions-table .value-danger {
+    color: #ff4757 !important;
+    font-weight: 600;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}

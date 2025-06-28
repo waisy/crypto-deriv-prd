@@ -23,8 +23,8 @@ class User {
   }
 
   getMarginRatio() {
-    if (this.usedMargin.isZero()) return Infinity;
-    return this.availableBalance.plus(this.unrealizedPnL).dividedBy(this.usedMargin).times(100).toNumber();
+    if (this.usedMargin.isZero()) return null;
+    return this.availableBalance.plus(this.unrealizedPnL).dividedBy(this.usedMargin).times(100);
   }
 
   getEquity() {
@@ -32,17 +32,18 @@ class User {
   }
 
   toJSON() {
+    const marginRatio = this.getMarginRatio();
     return {
       id: this.id,
       name: this.name,
-      totalBalance: this.totalBalance.toNumber(),
-      availableBalance: this.availableBalance.toNumber(),
-      usedMargin: this.usedMargin.toNumber(),
-      unrealizedPnL: this.unrealizedPnL.toNumber(),
+      totalBalance: this.totalBalance.toString(),
+      availableBalance: this.availableBalance.toString(),
+      usedMargin: this.usedMargin.toString(),
+      unrealizedPnL: this.unrealizedPnL.toString(),
       leverage: this.leverage,
-      totalPnL: this.totalPnL.toNumber(),
-      marginRatio: this.getMarginRatio(),
-      equity: this.getEquity().toNumber()
+      totalPnL: this.totalPnL.toString(),
+      marginRatio: marginRatio ? marginRatio.toString() : 'N/A',
+      equity: this.getEquity().toString()
     };
   }
 }

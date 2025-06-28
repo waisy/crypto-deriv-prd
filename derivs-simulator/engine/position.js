@@ -84,9 +84,9 @@ class Position {
 
   getRoE() {
     if (this.initialMargin.isZero() || this.initialMargin === null || this.initialMargin === undefined) {
-      return 0;
+      return new Decimal(0);
     }
-    return this.unrealizedPnL.dividedBy(this.initialMargin).times(100).toNumber();
+    return this.unrealizedPnL.dividedBy(this.initialMargin).times(100);
   }
 
   calculateADLScore(totalBalance) {
@@ -123,16 +123,16 @@ class Position {
     return {
       userId: this.userId,
       side: this.side,
-      size: this.size.toNumber(),
-      avgEntryPrice: this.avgEntryPrice.toNumber(),
+      size: this.size.toString(),
+      avgEntryPrice: this.avgEntryPrice.toString(),
       leverage: this.leverage,
-      unrealizedPnL: this.unrealizedPnL.toNumber(),
-      initialMargin: this.initialMargin.toNumber(),
-      maintenanceMargin: this.maintenanceMargin.toNumber(),
-      liquidationPrice: this.liquidationPrice.toNumber(),
+      unrealizedPnL: this.unrealizedPnL.toString(),
+      initialMargin: this.initialMargin.toString(),
+      maintenanceMargin: this.maintenanceMargin.toString(),
+      liquidationPrice: this.liquidationPrice.toString(),
       timestamp: this.timestamp,
-      positionValue: this.getPositionValue().toNumber(),
-      roe: this.getRoE(),
+      positionValue: this.getPositionValue().toString(),
+      roe: this.getRoE().toString(),
       adlScore: this.adlScore,
       isOpen: this.isOpen()
     };

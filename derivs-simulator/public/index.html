@@ -242,546 +242,515 @@
                     </div>
                 </div>
 
+                <div class="position-section">
+                    <h3>Positions</h3>
+                    <div class="table-container">
+                        <table class="positions-table" id="positionsTable">
+                            <thead>
+                                <tr>
+                                    <th>Side</th>
+                                    <th>Size</th>
+                                    <th>Entry Price</th>
+                                    <th>Mark Price</th>
+                                    <th>Liq Price</th>
+                                    <th>PnL</th>
+                                    <th>RoE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positionInfo">
+                                <tr class="no-data-row">
+                                    <td colspan="7" class="no-position">No open positions</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="orders-section">
                     <h3>Open Orders</h3>
-                    <div class="orders-container" id="openOrders">
-                        <div class="no-orders">No open orders</div>
+                    <div class="table-container">
+                        <table class="orders-table" id="ordersTable">
+                            <thead>
+                                <tr>
+                                    <th>Side</th>
+                                    <th>Size</th>
+                                    <th>Price</th>
+                                    <th>Filled</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="openOrders">
+                                <tr class="no-data-row">
+                                    <td colspan="6" class="no-orders">No open orders</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
-            <!-- Right Panel - Positions & User Info -->
+            <!-- Right Panel - User & Trade Info -->
             <div class="panel">
-                <div class="user-section">
-                    <h3>User Information</h3>
-                    <div id="userInfo">
-                        <h4 id="userName">Bob</h4>
-                        <div class="user-info">
-                            <div class="info-row">
-                                <span>Available Balance:</span>
-                                <span id="availableBalance">$100,000.00</span>
-                            </div>
-                            <div class="info-row">
-                                <span>Used Margin:</span>
-                                <span id="usedMargin">$0.00</span>
-                            </div>
-                            <div class="info-row">
-                                <span>Total PnL:</span>
-                                <span id="totalPnL" class="pnl">$0.00</span>
-                            </div>
-                            <div class="info-row">
-                                <span>Leverage:</span>
-                                <span id="userLeverage">10x</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="positions-section">
-                    <h3>Positions</h3>
-                    <div class="positions-container" id="positions">
-                        <div class="no-positions">No open positions</div>
-                    </div>
+                <h3>Account</h3>
+                <div class="account-info" id="userInfo">
+                    <div>Equity: <span class="value">$100,000.00</span></div>
+                    <div>Available: <span class="value">$100,000.00</span></div>
+                    <div>Used Margin: <span class="value">$0.00</span></div>
+                    <div>Unrealized PnL: <span class="value">$0.00</span></div>
+                    <div>Leverage: <span class="value">10x</span></div>
+                    <div>Margin Ratio: <span class="value">N/A</span></div>
                 </div>
 
                 <div class="trades-section">
                     <h3>Recent Trades</h3>
-                    <div class="trades-mini" id="trades">
-                        <div class="no-trades">No trades yet</div>
+                    <div class="trades-container" id="trades">
+                        <div class="no-trades">No recent trades</div>
                     </div>
                 </div>
-
-                <div class="adl-queue">
-                    <h3>ADL Queue</h3>
-                    <div id="adlQueue">
-                        <div class="no-adl">No positions in ADL queue</div>
+                
+                <div class="adl-section">
+                    <h3>ADL Ranking</h3>
+                    <div class="adl-queue" id="adlQueue">
+                        <div class="no-adl">No profitable positions</div>
                     </div>
                 </div>
             </div>
         </main>
     </div>
 
-    <!-- Price Update Modal -->
-    <div class="modal" id="priceModal">
-        <div class="modal-content">
-            <h3>Update Mark Price</h3>
-            <input type="number" id="modalPriceInput" placeholder="Enter new price">
-            <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn-primary" onclick="confirmPriceUpdate()">Update</button>
-            </div>
-        </div>
-    </div>
-
+    <script src="https://cdn.jsdelivr.net/npm/decimal.js@10.3.1/decimal.min.js"></script>
     <script>
-        let ws;
+        const ws = new WebSocket(`ws://${window.location.host}`);
         let currentUser = 'bob';
-        let currentSide = 'buy';
-        let exchangeState = null;
+        let state = {};
 
-        // WebSocket connection
-        function connectWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}`);
-            
-            ws.onopen = function() {
-                console.log('Connected to exchange');
-            };
-            
-                         ws.onmessage = function(event) {
-                 const data = JSON.parse(event.data);
-                 if (data.type === 'init' || data.type === 'update') {
-                     exchangeState = data.state;
-                     updateUI();
-                     
-                     // Auto-populate price on initial connection
-                     if (data.type === 'init') {
-                         updateAggressivePrice();
-                     }
-                 }
-                 if (data.error) {
-                     showError(data.error);
-                 }
-             };
-            
-            ws.onclose = function() {
-                console.log('Disconnected from exchange');
-                setTimeout(connectWebSocket, 3000);
-            };
-        }
+        ws.onopen = () => {
+            console.log('Connected to exchange');
+        };
 
-        // UI Event Handlers
-        document.addEventListener('DOMContentLoaded', function() {
-                         // User tab switching
-             document.querySelectorAll('.user-tab').forEach(tab => {
-                 tab.addEventListener('click', function() {
-                     document.querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
-                     this.classList.add('active');
-                     currentUser = this.dataset.user;
-                     document.getElementById('currentUser').textContent = currentUser === 'bob' ? 'Bob' : 'Eve';
-                     updateUserInfo();
-                     updatePositions();
-                     updateOrders();
-                 });
-             });
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
 
-            // Side button switching
-            document.querySelectorAll('.btn-side').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    document.querySelectorAll('.btn-side').forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    currentSide = this.dataset.side;
-                    updatePlaceOrderButton();
-                    updateAggressivePrice();
-                });
-            });
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
 
-                         // Order type change
-             document.getElementById('orderType').addEventListener('change', function() {
-                 const priceRow = document.getElementById('priceRow');
-                 if (this.value === 'market') {
-                     priceRow.style.display = 'none';
-                 } else {
-                     priceRow.style.display = 'block';
-                     updateAggressivePrice(); // Auto-populate price when switching to limit
-                 }
-             });
-
-            // Form submission
-            document.getElementById('orderForm').addEventListener('submit', function(e) {
-                e.preventDefault();
-                placeOrder();
-            });
-
-            // Input changes for margin calculation
-            ['orderSize', 'orderPrice', 'leverage'].forEach(id => {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.addEventListener('input', calculateMargin);
+            if (data.type === 'init' || data.type === 'update') {
+                state = data.state;
+                updateUI();
+                if(data.order && data.order.status === 'REJECTED') {
+                    showError(data.order.rejectReason);
                 }
-            });
+                if (data.liquidations && data.liquidations.length > 0) {
+                    data.liquidations.forEach(liq => {
+                        showNotification(`User ${liq.userId} was liquidated.`, 'error');
+                    });
+                }
+            }
+        };
 
-            connectWebSocket();
+        function switchUser(userId) {
+            currentUser = userId;
+            document.querySelectorAll('.user-tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelector(`.user-tab[data-user="${userId}"]`).classList.add('active');
+            updateUI(); // Refresh UI for new user
+        }
+        
+        document.querySelectorAll('.user-tab').forEach(tab => {
+            tab.addEventListener('click', () => switchUser(tab.dataset.user));
         });
 
-        function placeOrder() {
-            const orderData = {
+        // --- Utility Functions ---
+        function formatBTCAmount(amount) {
+            // Format BTC amounts to 3 decimal places (minimum order size is 0.001)
+            const decimal = new Decimal(amount);
+            return decimal.toFixed(3);
+        }
+        
+        function formatPrice(price) {
+            // Format USD prices to 2 decimal places with proper comma formatting
+            const decimal = new Decimal(price);
+            return decimal.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+
+        // --- UI Update Functions ---
+        function updateUI() {
+            if (!state) return;
+
+            updatePriceInfo();
+            updateOrderBook();
+            updateTrades();
+            updateUserInfo();
+            updatePositionInfo();
+            updateOpenOrders();
+            updateInsuranceFund();
+            updateADLQueue();
+            
+            // Update leverage dropdown based on user's current setting
+            const user = state.users.find(u => u.id === currentUser);
+            if(user) {
+                document.getElementById('leverage').value = user.leverage;
+            }
+            
+            // Update margin info on any change
+            updateMarginInfo();
+            updateAggressivePrice();
+        }
+        
+        function updatePriceInfo() {
+            document.getElementById('markPrice').textContent = `$${new Decimal(state.markPrice).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const spread = state.orderBook.spread;
+            document.getElementById('spread').textContent = spread ? `Spread: $${new Decimal(spread).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Spread: -';
+        }
+
+        function updateOrderBook() {
+            const asksContainer = document.getElementById('asks');
+            const bidsContainer = document.getElementById('bids');
+            const orderBook = state.orderBook;
+            
+            asksContainer.innerHTML = '<h4>Asks</h4>';
+            bidsContainer.innerHTML = '<h4>Bids</h4>';
+            
+            if (orderBook.asks.length === 0) {
+                asksContainer.innerHTML += '<div class="no-orders">No sell orders</div>';
+            } else {
+                orderBook.asks.forEach(level => {
+                    const el = document.createElement('div');
+                    el.className = 'order-level ask clickable';
+                    el.innerHTML = `<span class="price">$${formatPrice(level.price)}</span> <span class="size">${formatBTCAmount(level.size)}</span>`;
+                    el.onclick = () => { 
+                        setPrice(level.price);
+                        setSize(level.size);
+                    };
+                    asksContainer.appendChild(el);
+                });
+            }
+
+            if (orderBook.bids.length === 0) {
+                bidsContainer.innerHTML += '<div class="no-orders">No buy orders</div>';
+            } else {
+                orderBook.bids.forEach(level => {
+                    const el = document.createElement('div');
+                    el.className = 'order-level bid clickable';
+                    el.innerHTML = `<span class="price">$${formatPrice(level.price)}</span> <span class="size">${formatBTCAmount(level.size)}</span>`;
+                    el.onclick = () => {
+                        setPrice(level.price);
+                        setSize(level.size);
+                    };
+                    bidsContainer.appendChild(el);
+                });
+            }
+        }
+
+        function updateTrades() {
+            const tradesContainer = document.getElementById('trades');
+            tradesContainer.innerHTML = '<h4>Recent Trades</h4>';
+            
+            if (!state.trades || state.trades.length === 0) {
+                tradesContainer.innerHTML += '<div class="no-trades">No recent trades</div>';
+                return;
+            }
+
+            state.trades.slice().reverse().forEach(trade => {
+                const el = document.createElement('div');
+                el.className = `trade-row`; // Side is not available in trade object
+                el.innerHTML = `
+                    <span class="price">$${formatPrice(trade.price)}</span>
+                    <span class="size">${formatBTCAmount(trade.size)}</span>
+                    <span class="time">${new Date(trade.timestamp).toLocaleTimeString()}</span>
+                `;
+                tradesContainer.appendChild(el);
+            });
+        }
+        
+        function updateUserInfo() {
+            const user = state.users.find(u => u.id === currentUser);
+            if (!user) return;
+            
+            const position = state.positions.find(p => p.userId === currentUser);
+            document.getElementById('currentUser').textContent = user.name;
+            const pnl = position ? new Decimal(position.unrealizedPnL) : new Decimal(0);
+            const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'pnl-positive' : (pnl.isNegative() ? 'pnl-negative' : '');
+            
+            const marginRatio = user.marginRatio !== 'N/A' ? new Decimal(user.marginRatio).toNumber() : null;
+            let marginRatioClass = '';
+            if (marginRatio !== null) {
+                if (marginRatio <= 105) marginRatioClass = 'value-danger';
+                else if (marginRatio <= 120) marginRatioClass = 'value-warning';
+                else if (marginRatio <= 150) marginRatioClass = 'value-caution';
+            }
+
+            document.getElementById('userInfo').innerHTML = `
+                <div class="user-info">
+                    <div class="info-row">
+                        <span class="info-label">Equity</span>
+                        <span class="info-value">$${new Decimal(user.equity).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Available</span>
+                        <span class="info-value">$${new Decimal(user.availableBalance).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Used Margin</span>
+                        <span class="info-value">$${new Decimal(user.usedMargin).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Unrealized PnL</span>
+                        <span class="info-value ${pnlClass}">$${pnl.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Leverage</span>
+                        <span class="info-value">${user.leverage}x</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Margin Ratio</span>
+                        <span class="info-value ${marginRatioClass}">${marginRatio !== null ? marginRatio.toFixed(2) + '%' : 'N/A'}</span>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function updatePositionInfo() {
+            const position = state.positions.find(p => p.userId === currentUser);
+            const container = document.getElementById('positionInfo');
+
+            if (!position || !position.isOpen) {
+                container.innerHTML = '<tr class="no-data-row"><td colspan="7" class="no-position">No open positions</td></tr>';
+                return;
+            }
+            
+            const pnl = new Decimal(position.unrealizedPnL);
+            const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'pnl-positive' : (pnl.isNegative() ? 'pnl-negative' : '');
+            const roe = new Decimal(position.roe);
+            const roeClass = roe.isPositive() && !roe.isZero() ? 'pnl-positive' : (roe.isNegative() ? 'pnl-negative' : '');
+            const sideClass = position.side === 'long' ? 'side-long' : 'side-short';
+            
+            // Calculate distance to liquidation
+            const currentPrice = new Decimal(state.markPrice);
+            const liquidationPrice = new Decimal(position.liquidationPrice);
+            const distanceToLiq = currentPrice.minus(liquidationPrice).abs();
+            const distancePercent = distanceToLiq.div(currentPrice).times(100);
+            
+            let liquidationWarning = '';
+            if (distancePercent.lessThan(5)) {
+                liquidationWarning = 'value-danger';
+            } else if (distancePercent.lessThan(10)) {
+                liquidationWarning = 'value-warning';
+            }
+
+            container.innerHTML = `
+                <tr class="position-row">
+                    <td class="side-cell ${sideClass}">${position.side.toUpperCase()}</td>
+                    <td class="size-cell">${formatBTCAmount(position.size)} BTC</td>
+                    <td class="price-cell">$${formatPrice(position.avgEntryPrice)}</td>
+                    <td class="price-cell">$${formatPrice(state.markPrice)}</td>
+                    <td class="price-cell ${liquidationWarning}">$${formatPrice(position.liquidationPrice)}</td>
+                    <td class="pnl-cell ${pnlClass}">${pnl.isPositive() ? '+' : ''}$${formatPrice(pnl)}</td>
+                    <td class="roe-cell ${roeClass}">${roe.isPositive() ? '+' : ''}${roe.toFixed(2)}%</td>
+                </tr>
+            `;
+        }
+
+        function updateOpenOrders() {
+            const container = document.getElementById('openOrders');
+            const orders = state.userOrders[currentUser] || [];
+            container.innerHTML = '';
+            
+            if (orders.length === 0) {
+                container.innerHTML = '<tr class="no-data-row"><td colspan="6" class="no-orders">No open orders</td></tr>';
+                return;
+            }
+
+            orders.forEach(order => {
+                const sideClass = order.side === 'buy' ? 'side-long' : 'side-short';
+                const statusClass = order.status.toLowerCase().replace('_', '-');
+                const filledPercent = new Decimal(order.filledSize).div(order.originalSize).times(100);
+                const remainingSize = new Decimal(order.originalSize).minus(order.filledSize);
+                
+                const row = document.createElement('tr');
+                row.className = `order-row ${statusClass}`;
+                row.innerHTML = `
+                    <td class="side-cell ${sideClass}">${order.side.toUpperCase()}</td>
+                    <td class="size-cell">${formatBTCAmount(order.originalSize)} BTC</td>
+                    <td class="price-cell">$${formatPrice(order.price)}</td>
+                    <td class="filled-cell">
+                        <span class="filled-amount">${formatBTCAmount(order.filledSize)}</span>
+                        <span class="filled-percent">(${filledPercent.toFixed(1)}%)</span>
+                    </td>
+                    <td class="status-cell ${statusClass}">${order.status.replace('_', ' ')}</td>
+                    <td class="action-cell">
+                        <button class="cancel-btn" onclick="cancelOrder('${order.id}')" title="Cancel Order">✕</button>
+                    </td>
+                `;
+                container.appendChild(row);
+            });
+        }
+        
+        function updateInsuranceFund() {
+            const insuranceFund = state.insuranceFund;
+            const container = document.getElementById('insuranceFund');
+            const balanceEl = document.getElementById('insuranceFundBalance');
+            
+            if (insuranceFund) {
+                const balance = new Decimal(insuranceFund.balance);
+                balanceEl.textContent = `$${balance.toDP(0).toNumber().toLocaleString('en-US', {maximumFractionDigits: 0})}`;
+                
+                if (insuranceFund.isAtRisk) {
+                    container.classList.add('at-risk');
+                    container.title = 'Insurance Fund is at risk!';
+                } else {
+                    container.classList.remove('at-risk');
+                    container.title = 'Click to view Insurance Fund History';
+                }
+            }
+        }
+        
+        function updateADLQueue() {
+            const queue = state.adlQueue || [];
+            const container = document.getElementById('adlQueue');
+            
+            if (queue.length === 0) {
+                container.innerHTML = '<div class="no-adl">No profitable positions</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            queue.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'adl-item';
+                const pnl = new Decimal(item.unrealizedPnL);
+                const pnlClass = pnl.isPositive() && !pnl.isZero() ? 'pnl-positive' : 'pnl-negative';
+                
+                const lights = '●'.repeat(item.adlIndicator) + '<span class="lights-off">' + '●'.repeat(5 - item.adlIndicator) + '</span>';
+
+                el.innerHTML = `
+                    <span>${item.userId}</span>
+                    <span class="adl-pnl ${pnlClass}">$${new Decimal(pnl).toFixed(2)}</span>
+                    <span class="adl-lights">${lights}</span>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        function updateMarginInfo() {
+            try {
+                const size = document.getElementById('orderSize').value;
+                const price = document.getElementById('orderPrice').value || state.markPrice;
+                const leverage = document.getElementById('leverage').value;
+                
+                if (!size || !price || !leverage || parseFloat(size) <= 0) {
+                    document.getElementById('marginInfo').textContent = 'Margin Required: $0.00';
+                    return;
+                }
+                
+                const marginRequired = new Decimal(size).times(price).dividedBy(leverage);
+                document.getElementById('marginInfo').textContent = `Margin Required: $${marginRequired.toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            } catch(e) {
+                document.getElementById('marginInfo').textContent = 'Margin Required: Error';
+            }
+        }
+        
+        function updateAggressivePrice() {
+            const orderType = document.getElementById('orderType').value;
+            const priceInput = document.getElementById('orderPrice');
+            if(orderType === 'market') {
+                priceInput.disabled = true;
+                priceInput.value = '';
+                return
+            }
+            priceInput.disabled = false;
+            
+            const side = document.querySelector('.btn-side.active').dataset.side;
+            const orderBook = state.orderBook;
+
+            let aggressivePrice;
+            if (side === 'buy') {
+                aggressivePrice = orderBook?.asks?.length > 0 ? orderBook.asks[0].price : state.markPrice;
+            } else {
+                aggressivePrice = orderBook?.bids?.length > 0 ? orderBook.bids[0].price : state.markPrice;
+            }
+            if (aggressivePrice) {
+                 priceInput.value = new Decimal(aggressivePrice).toFixed(2);
+            }
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('orderForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const order = {
                 type: 'place_order',
                 userId: currentUser,
-                side: currentSide,
-                size: parseFloat(document.getElementById('orderSize').value),
-                price: document.getElementById('orderType').value === 'market' ? null : parseFloat(document.getElementById('orderPrice').value),
+                side: document.querySelector('.btn-side.active').dataset.side,
+                size: document.getElementById('orderSize').value,
+                price: document.getElementById('orderPrice').value,
                 orderType: document.getElementById('orderType').value,
                 leverage: parseInt(document.getElementById('leverage').value)
             };
-
-            if (!orderData.size || orderData.size <= 0) {
-                showError('Please enter a valid size');
+            
+            if (order.orderType === 'limit' && !order.price) {
+                showError("Please enter a valid price for limit orders");
                 return;
             }
 
-            if (orderData.orderType === 'limit' && (!orderData.price || orderData.price <= 0)) {
-                showError('Please enter a valid price for limit orders');
-                return;
-            }
+            ws.send(JSON.stringify(order));
+        });
 
-                         ws.send(JSON.stringify(orderData));
-             
-             // Keep both size and price for rapid repeat orders
+        document.querySelectorAll('.btn-side').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.btn-side').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const side = btn.dataset.side;
+                document.getElementById('placeOrderBtn').textContent = `Place ${side.charAt(0).toUpperCase() + side.slice(1)} Order`;
+                document.getElementById('placeOrderBtn').className = `btn-primary ${side}`;
+                updateAggressivePrice();
+            });
+        });
+
+        document.getElementById('orderType').addEventListener('change', updateAggressivePrice);
+        document.getElementById('orderSize').addEventListener('input', updateMarginInfo);
+        document.getElementById('orderPrice').addEventListener('input', updateMarginInfo);
+        document.getElementById('leverage').addEventListener('change', () => {
+             updateMarginInfo();
+             ws.send(JSON.stringify({ type: 'update_leverage', userId: currentUser, leverage: parseInt(document.getElementById('leverage').value) }));
+        });
+
+        function setPrice(price) {
+            document.getElementById('orderPrice').value = new Decimal(price).toFixed(2);
+            updateMarginInfo();
+        }
+
+        function setSize(size) {
+            document.getElementById('orderSize').value = formatBTCAmount(size);
+            updateMarginInfo();
+        }
+
+        function cancelOrder(orderId) {
+            ws.send(JSON.stringify({ type: 'cancel_order', orderId }));
         }
 
         function updateMarkPrice() {
-            const newPrice = parseFloat(document.getElementById('newMarkPrice').value);
-            if (!newPrice || newPrice <= 0) {
-                showError('Please enter a valid price');
-                return;
-            }
-
-            ws.send(JSON.stringify({
-                type: 'update_mark_price',
-                price: newPrice
-            }));
-
-            document.getElementById('newMarkPrice').value = '';
-        }
-
-        function calculateMargin() {
-            const size = parseFloat(document.getElementById('orderSize').value) || 0;
-            const price = parseFloat(document.getElementById('orderPrice').value) || (exchangeState ? exchangeState.markPrice : 45000);
-            const leverage = parseInt(document.getElementById('leverage').value) || 10;
-            
-            const notional = size * price;
-            const margin = notional / leverage;
-            
-            document.getElementById('marginInfo').textContent = `Margin Required: $${margin.toFixed(2)}`;
-        }
-
-                 function updatePlaceOrderButton() {
-             const btn = document.getElementById('placeOrderBtn');
-             btn.textContent = `Place ${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} Order`;
-         }
-
-         function updateInsuranceFund() {
-             if (!exchangeState.insuranceFund) return;
-             
-             const balanceElement = document.getElementById('insuranceFundBalance');
-             const fundElement = document.getElementById('insuranceFund');
-             
-             const balance = exchangeState.insuranceFund.balance;
-             const isAtRisk = exchangeState.insuranceFund.isAtRisk;
-             
-             balanceElement.textContent = `$${balance.toLocaleString()}`;
-             
-             // Update styling based on risk status
-             if (isAtRisk) {
-                 fundElement.classList.add('at-risk');
-             } else {
-                 fundElement.classList.remove('at-risk');
-             }
-         }
-
-         function updateAggressivePrice() {
-             if (!exchangeState || !exchangeState.orderBook) {
-                 return;
-             }
-             
-             const priceInput = document.getElementById('orderPrice');
-             const orderType = document.getElementById('orderType').value;
-             
-             // Only auto-populate for limit orders and only if price field is empty
-             if (orderType !== 'limit' || priceInput.value !== '') return;
-             
-             let aggressivePrice = null;
-             
-             if (currentSide === 'buy') {
-                 // For buy orders, use best ask (lowest sell price) to aggress immediately
-                 if (exchangeState.orderBook.bestAsk) {
-                     aggressivePrice = exchangeState.orderBook.bestAsk;
-                 } else {
-                     // Fallback: use mark price + small buffer for buy orders
-                     aggressivePrice = exchangeState.markPrice + 1;
-                 }
-             } else {
-                 // For sell orders, use best bid (highest buy price) to aggress immediately  
-                 if (exchangeState.orderBook.bestBid) {
-                     aggressivePrice = exchangeState.orderBook.bestBid;
-                 } else {
-                     // Fallback: use mark price - small buffer for sell orders
-                     aggressivePrice = exchangeState.markPrice - 1;
-                 }
-             }
-             
-             if (aggressivePrice) {
-                 priceInput.value = aggressivePrice.toFixed(2);
-                 calculateMargin(); // Update margin calculation with new price
-             }
-         }
-
-                 function updateUI() {
-             if (!exchangeState) return;
-
-             // Update mark price
-             document.getElementById('markPrice').textContent = `$${exchangeState.markPrice?.toLocaleString() || '45,000.00'}`;
-
-             // Update insurance fund
-             updateInsuranceFund();
-
-             // Update order book
-             updateOrderBook();
-             
-             // Update user info
-             updateUserInfo();
-             
-             // Update positions
-             updatePositions();
-             
-             // Update orders
-             updateOrders();
-             
-             // Update trades
-             updateTrades();
-         }
-
-        function updateOrderBook() {
-            if (!exchangeState.orderBook) return;
-
-            const asksContainer = document.getElementById('asks');
-            const bidsContainer = document.getElementById('bids');
-            const spreadContainer = document.getElementById('spread');
-
-            // Clear existing orders
-            asksContainer.innerHTML = '<h4>Asks</h4>';
-            bidsContainer.innerHTML = '<h4>Bids</h4>';
-
-            // Update asks
-            if (exchangeState.orderBook.asks && exchangeState.orderBook.asks.length > 0) {
-                exchangeState.orderBook.asks.forEach(level => {
-                    const orderDiv = document.createElement('div');
-                    orderDiv.className = 'order-level ask clickable';
-                    orderDiv.innerHTML = `<span>$${level.price}</span><span>${level.size}</span>`;
-                    orderDiv.addEventListener('click', () => populateOrderForm('buy', level.price, level.size));
-                    asksContainer.appendChild(orderDiv);
-                });
-            } else {
-                const noOrders = document.createElement('div');
-                noOrders.className = 'no-orders';
-                noOrders.textContent = 'No sell orders';
-                asksContainer.appendChild(noOrders);
-            }
-
-            // Update bids
-            if (exchangeState.orderBook.bids && exchangeState.orderBook.bids.length > 0) {
-                exchangeState.orderBook.bids.forEach(level => {
-                    const orderDiv = document.createElement('div');
-                    orderDiv.className = 'order-level bid clickable';
-                    orderDiv.innerHTML = `<span>$${level.price}</span><span>${level.size}</span>`;
-                    orderDiv.addEventListener('click', () => populateOrderForm('sell', level.price, level.size));
-                    bidsContainer.appendChild(orderDiv);
-                });
-            } else {
-                const noOrders = document.createElement('div');
-                noOrders.className = 'no-orders';
-                noOrders.textContent = 'No buy orders';
-                bidsContainer.appendChild(noOrders);
-            }
-
-            // Update spread
-            if (exchangeState.orderBook.spread !== null) {
-                spreadContainer.textContent = `Spread: $${exchangeState.orderBook.spread}`;
-            } else {
-                spreadContainer.textContent = 'Spread: -';
+            const price = document.getElementById('newMarkPrice').value;
+            if (price) {
+                ws.send(JSON.stringify({ type: 'update_mark_price', price: parseFloat(price) }));
             }
         }
 
-        function updateUserInfo() {
-            if (!exchangeState.users) return;
-
-            const user = exchangeState.users.find(u => u.id === currentUser);
-            if (!user) return;
-
-            document.getElementById('userName').textContent = user.name || currentUser;
-            document.getElementById('availableBalance').textContent = `$${user.availableBalance?.toFixed(2) || '0.00'}`;
-            document.getElementById('usedMargin').textContent = `$${user.usedMargin?.toFixed(2) || '0.00'}`;
-            document.getElementById('userLeverage').textContent = `${user.leverage || 10}x`;
-            
-            // Calculate total PnL from positions
-            const userPositions = exchangeState.positions?.filter(p => p.userId === currentUser) || [];
-            const totalPnL = userPositions.reduce((sum, pos) => sum + (pos.unrealizedPnL || 0), 0);
-            const pnlElement = document.getElementById('totalPnL');
-            pnlElement.textContent = `$${totalPnL.toFixed(2)}`;
-            pnlElement.className = `pnl ${totalPnL >= 0 ? 'positive' : 'negative'}`;
+        function showError(message) {
+            console.error(message);
+            // Could add a toast notification here
+        }
+        
+        function showNotification(message, type = 'info') {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+            // Could add a toast notification here
         }
 
-        function updatePositions() {
-            const positionsContainer = document.getElementById('positions');
-            positionsContainer.innerHTML = '';
+        // Initial setup
+        document.querySelector(`.user-tab[data-user="${currentUser}"]`).classList.add('active');
+        document.getElementById('currentUser').textContent = 'Bob';
 
-            const userPositions = exchangeState.positions?.filter(p => p.userId === currentUser) || [];
-
-            if (userPositions.length === 0) {
-                const noPositions = document.createElement('div');
-                noPositions.className = 'no-positions';
-                noPositions.textContent = 'No open positions';
-                positionsContainer.appendChild(noPositions);
-                return;
-            }
-
-            userPositions.forEach(position => {
-                const positionDiv = document.createElement('div');
-                positionDiv.className = 'position-item-mini';
-                positionDiv.innerHTML = `
-                    <div class="position-header">
-                        <span class="position-side ${position.side}">${position.side.toUpperCase()}</span>
-                        <span>${position.size} BTC</span>
-                    </div>
-                    <div class="position-details">
-                        <div>Entry: $${position.avgEntryPrice?.toFixed(2) || '0.00'}</div>
-                        <div class="pnl ${(position.unrealizedPnL || 0) >= 0 ? 'positive' : 'negative'}">
-                            PnL: $${position.unrealizedPnL?.toFixed(2) || '0.00'}
-                        </div>
-                        <div>Liq: $${position.liquidationPrice?.toFixed(2) || 'N/A'}</div>
-                    </div>
-                `;
-                positionsContainer.appendChild(positionDiv);
-            });
-        }
-
-                 function updateOrders() {
-             const ordersContainer = document.getElementById('openOrders');
-             ordersContainer.innerHTML = '';
-
-             const userOrders = exchangeState.userOrders?.[currentUser] || [];
-
-             if (userOrders.length === 0) {
-                 const noOrders = document.createElement('div');
-                 noOrders.className = 'no-orders';
-                 noOrders.textContent = 'No open orders';
-                 ordersContainer.appendChild(noOrders);
-                 return;
-             }
-
-             userOrders.forEach(order => {
-                 const fillPercent = ((order.originalSize - order.remainingSize) / order.originalSize * 100).toFixed(1);
-                 const isPartiallyFilled = order.filledSize > 0;
-                 
-                 const orderDiv = document.createElement('div');
-                 orderDiv.className = `order-item enhanced ${order.status?.toLowerCase().replace('_', '-')}`;
-                 orderDiv.innerHTML = `
-                     <div class="order-header">
-                         <div class="order-title">
-                             <span class="order-side ${order.side}">${order.side.toUpperCase()}</span>
-                             <span class="order-status ${order.status?.toLowerCase().replace('_', '-')}">${order.status?.replace('_', ' ') || 'PENDING'}</span>
-                             <span class="order-time">${new Date(order.timestamp).toLocaleTimeString()}</span>
-                         </div>
-                         <button class="order-cancel" onclick="cancelOrder('${order.id}')">×</button>
-                     </div>
-                     <div class="order-info">
-                         <div class="order-sizes">
-                             <span class="remaining">${order.remainingSize?.toFixed(3)} BTC remaining</span>
-                             <span class="original">of ${order.originalSize?.toFixed(3)} BTC</span>
-                         </div>
-                         <div class="order-prices">
-                             <span class="order-price">@ $${order.price.toLocaleString()}</span>
-                             ${isPartiallyFilled ? `<span class="avg-price">Avg: $${order.avgFillPrice?.toFixed(2) || order.price}</span>` : ''}
-                         </div>
-                     </div>
-                     ${isPartiallyFilled ? `
-                         <div class="order-progress">
-                             <div class="progress-bar">
-                                 <div class="progress-fill" style="width: ${fillPercent}%"></div>
-                             </div>
-                             <span class="progress-text">${fillPercent}% filled</span>
-                         </div>
-                     ` : ''}
-                     ${order.fills && order.fills.length > 0 ? `
-                         <div class="order-fills">
-                             <details>
-                                 <summary>${order.fills.length} fill(s)</summary>
-                                 <div class="fills-list">
-                                     ${order.fills.map(fill => `
-                                         <div class="fill-item">
-                                             <span>${fill.size?.toFixed(3)} BTC @ $${fill.price?.toLocaleString()}</span>
-                                             <span class="fill-time">${new Date(fill.timestamp).toLocaleTimeString()}</span>
-                                         </div>
-                                     `).join('')}
-                                 </div>
-                             </details>
-                         </div>
-                     ` : ''}
-                 `;
-                 ordersContainer.appendChild(orderDiv);
-             });
-         }
-
-         function cancelOrder(orderId) {
-             ws.send(JSON.stringify({
-                 type: 'cancel_order',
-                 orderId: orderId
-             }));
-         }
-
-         function updateTrades() {
-             const tradesContainer = document.getElementById('trades');
-             tradesContainer.innerHTML = '';
-
-             if (!exchangeState.trades || exchangeState.trades.length === 0) {
-                 const noTrades = document.createElement('div');
-                 noTrades.className = 'no-trades';
-                 noTrades.textContent = 'No trades yet';
-                 tradesContainer.appendChild(noTrades);
-                 return;
-             }
-
-             // Show last 10 trades
-             const recentTrades = exchangeState.trades.slice(-10).reverse();
-             
-             recentTrades.forEach(trade => {
-                 const tradeDiv = document.createElement('div');
-                 tradeDiv.className = 'trade-item';
-                 tradeDiv.innerHTML = `
-                     <div class="trade-price">${trade.size} @ $${trade.price}</div>
-                     <div class="trade-time">${new Date(trade.timestamp).toLocaleTimeString()}</div>
-                 `;
-                 tradesContainer.appendChild(tradeDiv);
-             });
-         }
-
-                 function setSize(size) {
-             document.getElementById('orderSize').value = size;
-             calculateMargin(); // Update margin calculation with new size
-         }
-
-         function populateOrderForm(side, price, size) {
-             // Switch side buttons
-             document.querySelectorAll('.btn-side').forEach(btn => btn.classList.remove('active'));
-             document.querySelector(`[data-side="${side}"]`).classList.add('active');
-             currentSide = side;
-             
-             // Set to limit order type
-             document.getElementById('orderType').value = 'limit';
-             document.getElementById('priceRow').style.display = 'block';
-             
-             // Populate price
-             document.getElementById('orderPrice').value = price;
-             
-             // Use a sensible size (either the level size or a minimum tradeable amount)
-             const targetSize = Math.min(size, 0.1); // Cap at 0.1 BTC for UX
-             const minSize = 0.001; // Minimum tradeable
-             document.getElementById('orderSize').value = Math.max(targetSize, minSize).toFixed(3);
-             
-             // Update UI elements
-             updatePlaceOrderButton();
-             calculateMargin();
-             
-             // Visual feedback
-             console.log(`Auto-populated: ${side.toUpperCase()} ${document.getElementById('orderSize').value} BTC @ $${price}`);
-         }
-
-         function showError(message) {
-             // You can implement a proper error display here
-             console.error(message);
-             alert(message); // Temporary error display
-         }
     </script>
 </body>
 </html> 

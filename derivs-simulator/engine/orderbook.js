@@ -141,7 +141,7 @@ class OrderBook {
     const sanitizedOrder = { ...order };
     for (const key in sanitizedOrder) {
       if (sanitizedOrder[key] instanceof Decimal) {
-        sanitizedOrder[key] = sanitizedOrder[key].toNumber();
+        sanitizedOrder[key] = sanitizedOrder[key].toString();
       }
     }
     // Also sanitize fills if they exist

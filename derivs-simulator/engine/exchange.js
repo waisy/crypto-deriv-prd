@@ -13,8 +13,8 @@ class Exchange {
     this.orderBook = new OrderBook();
     this.matchingEngine = new MatchingEngine(this.orderBook);
     this.marginCalculator = new MarginCalculator();
-    this.liquidationEngine = new LiquidationEngine(this.matchingEngine, this.orderBook, this.marginCalculator);
     this.adlEngine = new ADLEngine();
+    this.liquidationEngine = new LiquidationEngine(this.matchingEngine, this.orderBook, this.marginCalculator, this.adlEngine);
     this.marginMonitor = new MarginMonitor(this.marginCalculator);
     
     this.users = new Map();
@@ -268,35 +268,26 @@ class Exchange {
       position.updatePnL(this.currentMarkPrice);
     });
     
-    const marginCallUpdates = this.marginMonitor.monitorPositions(this.positions, this.users, this.currentMarkPrice);
     const liquidations = await this.checkLiquidations();
 
     return {
       success: true,
-      markPrice: this.currentMarkPrice,
-      marginCalls: marginCallUpdates,
-      liquidations: liquidations.length > 0 ? liquidations : undefined,
+      newPrice,
+      liquidations,
       state: this.getState()
     };
   }
 
   async checkLiquidations() {
     const liquidations = [];
-    for (const [key, position] of this.positions.entries()) {
+    for (const [userId, position] of this.positions.entries()) {
       if (this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice)) {
-        const liquidation = await this.liquidationEngine.liquidate(position, this.currentMarkPrice);
-        liquidations.push(liquidation);
-
-        this.positions.delete(key);
-        const user = this.users.get(position.userId);
-        if (user) {
-          user.updateBalance(liquidation.remainingBalance);
-          user.usedMargin = user.usedMargin.minus(position.initialMargin);
-        }
-
-        if (liquidation.insuranceFundLoss.greaterThan(0) && this.liquidationEngine.isSystemAtRisk()) {
-          // ADL logic placeholder
-        }
+        console.log(`Liquidating ${userId}...`);
+        const result = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, this.positions);
+        liquidations.push(result);
+        
+        // Remove position after liquidation
+        this.positions.delete(userId);
       }
     }
     return liquidations;
@@ -305,21 +296,18 @@ class Exchange {
   async forceLiquidation(userId) {
     const position = this.positions.get(userId);
     if (!position) {
-      throw new Error(`No position found for user ${userId} to force liquidate.`);
+      throw new Error(`Position for user ${userId} not found.`);
     }
 
-    const liquidation = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, true);
+    console.log(`Force liquidating ${userId}...`);
+    const result = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, this.positions, true);
+    
+    // Remove position after liquidation
     this.positions.delete(userId);
 
-    const user = this.users.get(userId);
-    if (user) {
-      user.updateBalance(liquidation.remainingBalance);
-      user.usedMargin = user.usedMargin.minus(position.initialMargin);
-    }
-    
     return {
       success: true,
-      liquidation,
+      liquidationResult: result,
       state: this.getState()
     };
   }
@@ -365,19 +353,19 @@ class Exchange {
       users: Array.from(this.users.values()).map(u => u.toJSON()),
       positions: Array.from(this.positions.values()).map(p => p.toJSON()),
       orderBook: this.orderBook.toJSON(),
-      trades: this.trades.slice(-20), // Last 20 trades
-      markPrice: this.currentMarkPrice.toNumber(),
-      indexPrice: this.indexPrice.toNumber(),
-      fundingRate: this.fundingRate.toNumber(),
+      trades: this.trades.slice(-20),
+      markPrice: this.currentMarkPrice.toString(),
+      indexPrice: this.indexPrice.toString(),
+      fundingRate: this.fundingRate.toString(),
       insuranceFund: {
         balance: this.liquidationEngine.getInsuranceFundBalance(),
         isAtRisk: this.liquidationEngine.isSystemAtRisk()
       },
       userOrders: this.orderBook.getOrdersByUser(),
-      adlQueue: this.adlEngine.getQueue(),
+      adlQueue: this.adlEngine.getQueue(this.positions),
       marginCalls: this.marginMonitor.getActiveMarginCalls()
     };
   }
 }
 
-module.exports = { Exchange }; 
+module.exports = { Exchange };
