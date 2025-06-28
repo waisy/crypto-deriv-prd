@@ -325,33 +325,61 @@ class Exchange {
     this.logZeroSumCheck('After trade processing');
   }
 
-  updatePosition(userId, side, size, price, leverage) {
+  updatePosition(userId, side, size, price, leverage, lePositionId = null) {
     // Special case: liquidation engine positions should only be closed, never opened
     if (userId === 'liquidation_engine') {
-      const position = this.positions.get(userId);
-      if (!position) {
-        this.log('ERROR', `❌ Liquidation engine position not found for closing`);
+      // Find the specific liquidation engine position to close
+      const lePositions = this.positionLiquidationEngine.positions;
+      let targetPosition = null;
+      
+      if (lePositionId) {
+        // Use specific position ID if provided
+        targetPosition = lePositions.find(p => p.id === lePositionId);
+      } else {
+        // Fallback: find first position with opposite side (for closing)
+        targetPosition = lePositions.find(p => p.side !== side);
+      }
+      
+      if (!targetPosition) {
+        this.log('ERROR', `❌ Liquidation engine position not found for closing`, {
+          lePositionId,
+          requestedSide: side,
+          availablePositions: lePositions.map(p => ({id: p.id, side: p.side, size: p.size.toString()}))
+        });
         return;
       }
       
       // Only allow trades that reduce/close the position
-      if (position.side === side) {
-        this.log('ERROR', `❌ Invalid liquidation engine trade - would increase position`);
+      if (targetPosition.side === side) {
+        this.log('ERROR', `❌ Invalid liquidation engine trade - would increase position`, {
+          positionSide: targetPosition.side,
+          tradeSide: side
+        });
         return;
       }
       
       this.log('INFO', `🔄 CLOSING LIQUIDATION ENGINE POSITION`, {
-        side: position.side,
-        size: position.size.toString(),
+        positionId: targetPosition.id,
+        originalUserId: targetPosition.originalUserId,
+        side: targetPosition.side,
+        size: targetPosition.size.toString(),
         closingSize: size.toString()
       });
       
-      // Close the position
-      position.reduceSize(size, price);
-      if (position.size.isZero()) {
-        this.positions.delete(userId);
-        this.log('INFO', `✅ Liquidation engine position fully closed`);
+      // Use the liquidation engine's removePosition method to properly close
+      const closureResult = this.positionLiquidationEngine.removePosition(
+        targetPosition.id, 
+        'adl', 
+        new Decimal(price)
+      );
+      
+      if (closureResult) {
+        this.log('INFO', `✅ Liquidation engine position closed successfully`, {
+          positionId: targetPosition.id,
+          realizedPnL: closureResult.realizedPnL.toString()
+        });
       }
+      
       return;
     }
 
@@ -790,31 +818,15 @@ class Exchange {
                 price
               });
 
-              // Create synthetic orders for the forced trade
-              const leOrder = {
-                userId: 'liquidation_engine', // Must use liquidation_engine ID to properly close the position
-                side: leSide,
-                originalSize: new Decimal(size),
-                leverage: 1 // Default leverage for liquidation trades
-              };
+              // Process ADL trade directly with proper position tracking
+              const decPrice = new Decimal(price);
+              const decSize = new Decimal(size);
               
-              const counterpartyOrder = {
-                userId: counterpartyUserId,
-                side: counterpartySide,
-                originalSize: new Decimal(size),
-                leverage: 1 // Default leverage for liquidation trades
-              };
+              // Update the counterparty position (normal user position)
+              this.updatePosition(counterpartyUserId, counterpartySide, decSize, decPrice, 1);
               
-              // Create a match object
-              const syntheticMatch = {
-                buyOrder: leSide === 'buy' ? leOrder : counterpartyOrder,
-                sellOrder: leSide === 'sell' ? leOrder : counterpartyOrder,
-                price: new Decimal(price),
-                size: new Decimal(size)
-              };
-              
-              // Process the trade - this updates positions for both parties
-              this.processTrade(syntheticMatch);
+              // Close the liquidation engine position (with specific position ID)
+              this.updatePosition('liquidation_engine', leSide, decSize, decPrice, 1, lePosition.id);
               
               // Log the trade outcome
               this.log('INFO', `✅ ADL TRADE EXECUTED`, {
@@ -828,8 +840,7 @@ class Exchange {
               });
             }
             
-            // The LE position should now be fully closed
-            this.positionLiquidationEngine.removePosition(lePosition.id, 'adl', new Decimal(adlPlan.trades[0].price));
+            // Position should now be closed by updatePosition call above
 
             results.push({ positionId: lePosition.id, method: 'adl', success: true });
             executedCount++;
