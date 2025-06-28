@@ -144,10 +144,10 @@
                     <span id="insuranceFundBalance">$1,000,000</span>
                 </div>
             </div>
-            <div class="user-tabs">
-                <div class="user-tab active" data-user="user1">User 1</div>
-                <div class="user-tab" data-user="user2">User 2</div>
-            </div>
+                                <div class="user-tabs">
+                        <div class="user-tab active" data-user="bob">Bob</div>
+                        <div class="user-tab" data-user="eve">Eve</div>
+                    </div>
         </header>
 
         <main class="main-grid">
@@ -157,7 +157,7 @@
                 
                 <div class="user-switcher">
                     <label>Active User:</label>
-                    <div id="currentUser">User 1</div>
+                                            <div id="currentUser">Bob</div>
                 </div>
 
                 <div class="side-buttons">
@@ -223,7 +223,7 @@
             <!-- Center Panel - Order Book & Trades -->
             <div class="panel center-panel">
                 <div class="orderbook-section">
-                    <h3>Order Book</h3>
+                    <h3>Order Book <span class="orderbook-hint">Click to trade</span></h3>
                     <div class="orderbook-mini">
                         <div class="asks" id="asks">
                             <h4>Asks</h4>
@@ -254,7 +254,7 @@
                 <div class="user-section">
                     <h3>User Information</h3>
                     <div id="userInfo">
-                        <h4 id="userName">User 1</h4>
+                        <h4 id="userName">Bob</h4>
                         <div class="user-info">
                             <div class="info-row">
                                 <span>Available Balance:</span>
@@ -314,7 +314,7 @@
 
     <script>
         let ws;
-        let currentUser = 'user1';
+        let currentUser = 'bob';
         let currentSide = 'buy';
         let exchangeState = null;
 
@@ -357,7 +357,7 @@
                      document.querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
                      this.classList.add('active');
                      currentUser = this.dataset.user;
-                     document.getElementById('currentUser').textContent = currentUser === 'user1' ? 'User 1' : 'User 2';
+                     document.getElementById('currentUser').textContent = currentUser === 'bob' ? 'Bob' : 'Eve';
                      updateUserInfo();
                      updatePositions();
                      updateOrders();
@@ -556,8 +556,9 @@
             if (exchangeState.orderBook.asks && exchangeState.orderBook.asks.length > 0) {
                 exchangeState.orderBook.asks.forEach(level => {
                     const orderDiv = document.createElement('div');
-                    orderDiv.className = 'order-level ask';
+                    orderDiv.className = 'order-level ask clickable';
                     orderDiv.innerHTML = `<span>$${level.price}</span><span>${level.size}</span>`;
+                    orderDiv.addEventListener('click', () => populateOrderForm('buy', level.price, level.size));
                     asksContainer.appendChild(orderDiv);
                 });
             } else {
@@ -571,8 +572,9 @@
             if (exchangeState.orderBook.bids && exchangeState.orderBook.bids.length > 0) {
                 exchangeState.orderBook.bids.forEach(level => {
                     const orderDiv = document.createElement('div');
-                    orderDiv.className = 'order-level bid';
+                    orderDiv.className = 'order-level bid clickable';
                     orderDiv.innerHTML = `<span>$${level.price}</span><span>${level.size}</span>`;
+                    orderDiv.addEventListener('click', () => populateOrderForm('sell', level.price, level.size));
                     bidsContainer.appendChild(orderDiv);
                 });
             } else {
@@ -658,17 +660,53 @@
              }
 
              userOrders.forEach(order => {
+                 const fillPercent = ((order.originalSize - order.remainingSize) / order.originalSize * 100).toFixed(1);
+                 const isPartiallyFilled = order.filledSize > 0;
+                 
                  const orderDiv = document.createElement('div');
-                 orderDiv.className = 'order-item';
+                 orderDiv.className = `order-item enhanced ${order.status?.toLowerCase().replace('_', '-')}`;
                  orderDiv.innerHTML = `
-                     <div class="order-details">
-                         <span class="order-side ${order.side}">${order.side}</span>
-                         <span>${order.size}</span>
-                         <span>@</span>
-                         <span>$${order.price}</span>
-                         <span class="order-type">${order.type.toUpperCase()}</span>
+                     <div class="order-header">
+                         <div class="order-title">
+                             <span class="order-side ${order.side}">${order.side.toUpperCase()}</span>
+                             <span class="order-status ${order.status?.toLowerCase().replace('_', '-')}">${order.status?.replace('_', ' ') || 'PENDING'}</span>
+                             <span class="order-time">${new Date(order.timestamp).toLocaleTimeString()}</span>
+                         </div>
+                         <button class="order-cancel" onclick="cancelOrder('${order.id}')">×</button>
                      </div>
-                     <button class="order-cancel" onclick="cancelOrder('${order.id}')">×</button>
+                     <div class="order-info">
+                         <div class="order-sizes">
+                             <span class="remaining">${order.remainingSize?.toFixed(3)} BTC remaining</span>
+                             <span class="original">of ${order.originalSize?.toFixed(3)} BTC</span>
+                         </div>
+                         <div class="order-prices">
+                             <span class="order-price">@ $${order.price.toLocaleString()}</span>
+                             ${isPartiallyFilled ? `<span class="avg-price">Avg: $${order.avgFillPrice?.toFixed(2) || order.price}</span>` : ''}
+                         </div>
+                     </div>
+                     ${isPartiallyFilled ? `
+                         <div class="order-progress">
+                             <div class="progress-bar">
+                                 <div class="progress-fill" style="width: ${fillPercent}%"></div>
+                             </div>
+                             <span class="progress-text">${fillPercent}% filled</span>
+                         </div>
+                     ` : ''}
+                     ${order.fills && order.fills.length > 0 ? `
+                         <div class="order-fills">
+                             <details>
+                                 <summary>${order.fills.length} fill(s)</summary>
+                                 <div class="fills-list">
+                                     ${order.fills.map(fill => `
+                                         <div class="fill-item">
+                                             <span>${fill.size?.toFixed(3)} BTC @ $${fill.price?.toLocaleString()}</span>
+                                             <span class="fill-time">${new Date(fill.timestamp).toLocaleTimeString()}</span>
+                                         </div>
+                                     `).join('')}
+                                 </div>
+                             </details>
+                         </div>
+                     ` : ''}
                  `;
                  ordersContainer.appendChild(orderDiv);
              });
@@ -710,6 +748,32 @@
                  function setSize(size) {
              document.getElementById('orderSize').value = size;
              calculateMargin(); // Update margin calculation with new size
+         }
+
+         function populateOrderForm(side, price, size) {
+             // Switch side buttons
+             document.querySelectorAll('.btn-side').forEach(btn => btn.classList.remove('active'));
+             document.querySelector(`[data-side="${side}"]`).classList.add('active');
+             currentSide = side;
+             
+             // Set to limit order type
+             document.getElementById('orderType').value = 'limit';
+             document.getElementById('priceRow').style.display = 'block';
+             
+             // Populate price
+             document.getElementById('orderPrice').value = price;
+             
+             // Use a sensible size (either the level size or a minimum tradeable amount)
+             const targetSize = Math.min(size, 0.1); // Cap at 0.1 BTC for UX
+             const minSize = 0.001; // Minimum tradeable
+             document.getElementById('orderSize').value = Math.max(targetSize, minSize).toFixed(3);
+             
+             // Update UI elements
+             updatePlaceOrderButton();
+             calculateMargin();
+             
+             // Visual feedback
+             console.log(`Auto-populated: ${side.toUpperCase()} ${document.getElementById('orderSize').value} BTC @ $${price}`);
          }
 
          function showError(message) {

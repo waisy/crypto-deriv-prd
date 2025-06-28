@@ -26,11 +26,11 @@ class Exchange {
   }
 
   initializeUsers() {
-    const user1 = new User('user1', 'User 1', 100000); // $100k balance
-    const user2 = new User('user2', 'User 2', 100000); // $100k balance
+    const bob = new User('bob', 'Bob', 100000); // $100k balance
+    const eve = new User('eve', 'Eve', 100000); // $100k balance
     
-    this.users.set('user1', user1);
-    this.users.set('user2', user2);
+    this.users.set('bob', bob);
+    this.users.set('eve', eve);
   }
 
   handleMessage(data) {
@@ -71,23 +71,32 @@ class Exchange {
       throw new Error('Insufficient margin');
     }
 
-    // Create order
+    // Create order with comprehensive tracking
     const order = {
       id: Date.now().toString(),
       userId,
       side,
-      size,
+      originalSize: size,
+      remainingSize: size,
+      filledSize: 0,
       price,
+      avgFillPrice: 0,
       type: orderType,
       leverage: user.leverage,
       timestamp: Date.now(),
-      status: 'pending'
+      lastUpdateTime: Date.now(),
+      status: 'NEW',
+      timeInForce: 'GTC', // Good Till Cancelled
+      fills: [],
+      totalValue: 0,
+      commission: 0,
+      marginReserved: marginReq
     };
 
     // Try to match the order (matching engine will add to book if needed)
     const matches = this.matchingEngine.match(order);
     
-    console.log(`Order placed: ${order.side} ${order.size} BTC at ${order.price} (${order.type})`);
+    console.log(`Order placed: ${order.side} ${order.originalSize} BTC at ${order.price} (${order.type})`);
     console.log(`Matches found: ${matches.length}`);
     
     // Process matches
@@ -332,8 +341,8 @@ class Exchange {
       trades: this.trades.slice(-50), // Last 50 trades
       orderBook: this.orderBook.getState(),
       userOrders: {
-        user1: this.orderBook.getUserOrders('user1'),
-        user2: this.orderBook.getUserOrders('user2')
+        bob: this.orderBook.getUserOrders('bob'),
+        eve: this.orderBook.getUserOrders('eve')
       },
       markPrice: this.currentMarkPrice,
       indexPrice: this.indexPrice,

@@ -67,7 +67,7 @@ class OrderBook {
     for (let i = 0; i < Math.min(depth, sortedPrices.length); i++) {
       const price = sortedPrices[i];
       const orders = this.bids.get(price);
-      const totalSize = orders.reduce((sum, order) => sum + order.size, 0);
+      const totalSize = orders.reduce((sum, order) => sum + order.remainingSize, 0);
       levels.push({ price, size: totalSize, orders: orders.length });
     }
     
@@ -81,7 +81,7 @@ class OrderBook {
     for (let i = 0; i < Math.min(depth, sortedPrices.length); i++) {
       const price = sortedPrices[i];
       const orders = this.asks.get(price);
-      const totalSize = orders.reduce((sum, order) => sum + order.size, 0);
+      const totalSize = orders.reduce((sum, order) => sum + order.remainingSize, 0);
       levels.push({ price, size: totalSize, orders: orders.length });
     }
     
