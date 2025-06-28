@@ -6,6 +6,12 @@
     <title>Insurance Fund History - Derivatives Exchange</title>
     <link rel="stylesheet" href="styles.css">
     <style>
+        /* Override global no-scroll styles from styles.css */
+        html, body {
+            height: auto;
+            overflow: auto;
+        }
+
         .if-container {
             max-width: 1400px;
             margin: 0 auto;
@@ -62,14 +68,14 @@
 
         .summary-card h3 {
             margin: 0 0 10px 0;
-            color: #2c3e50;
+            color: #566573;
             font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
         .summary-card .value {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: bold;
             color: #2c3e50;
         }
@@ -89,7 +95,7 @@
 
         .if-sections {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 30px;
         }
 
@@ -97,7 +103,6 @@
             background: white;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            overflow: hidden;
         }
 
         .section-header {
@@ -105,42 +110,52 @@
             color: white;
             padding: 15px 20px;
             font-weight: bold;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
         }
 
         .section-content {
-            padding: 20px;
+            padding: 0;
         }
 
         .history-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
+            font-size: 14px;
         }
 
         .history-table th,
         .history-table td {
-            padding: 8px 10px;
+            padding: 12px 15px;
             text-align: left;
-            border-bottom: 1px solid #ecf0f1;
+            border-bottom: 1px solid #dee2e6;
+            color: #343a40;
         }
 
         .history-table th {
-            background: #f8f9fa;
-            font-weight: bold;
-            color: #2c3e50;
+            background: #e9ecef;
+            font-weight: 600;
+            color: #495057;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 12px;
+        }
+
+        .history-table tr:nth-child(even) {
+             background-color: #f8f9fa;
         }
 
         .history-table tr:hover {
-            background: #f8f9fa;
+            background-color: #dbe2e9;
         }
 
         .amount.positive {
-            color: #27ae60;
+            color: #1e7e34;
             font-weight: bold;
         }
 
         .amount.negative {
-            color: #e74c3c;
+            color: #c82333;
             font-weight: bold;
         }
 
@@ -150,16 +165,15 @@
             font-size: 10px;
             font-weight: bold;
             text-transform: uppercase;
+            color: white;
         }
 
         .method-badge.market_order {
             background: #3498db;
-            color: white;
         }
 
         .method-badge.mark_price {
             background: #f39c12;
-            color: white;
         }
 
         .side-badge {
@@ -168,33 +182,50 @@
             font-size: 10px;
             font-weight: bold;
             text-transform: uppercase;
+            color: white;
         }
 
         .side-badge.long {
             background: #27ae60;
-            color: white;
         }
 
         .side-badge.short {
             background: #e74c3c;
-            color: white;
         }
 
         .liquidation-details {
-            font-size: 11px;
-            color: #7f8c8d;
-            margin-top: 4px;
+            font-size: 12px;
+            color: #495057;
+            padding: 10px 15px 10px 30px;
+            border-left: 4px solid #6c757d;
+            background: #e9ecef;
         }
 
         .if-chart {
             height: 300px;
             border: 1px solid #ecf0f1;
             border-radius: 4px;
+            margin-bottom: 20px;
+            position: relative;
+            background: #f8f9fa;
+        }
+
+        .if-chart canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 4px;
+        }
+
+        .chart-placeholder {
             display: flex;
             align-items: center;
             justify-content: center;
             color: #7f8c8d;
-            margin-bottom: 20px;
+            height: 100%;
+        }
+
+        .chart-section-container {
+            margin-bottom: 30px;
         }
 
         @media (max-width: 768px) {
@@ -241,16 +272,6 @@
         <!-- Summary Cards -->
         <div class="if-summary" id="ifSummary">
             <!-- Summary cards will be populated here -->
-        </div>
-
-        <!-- Balance Chart Placeholder -->
-        <div class="if-section">
-            <div class="section-header">Insurance Fund Balance Over Time</div>
-            <div class="section-content">
-                <div class="if-chart" id="balanceChart">
-                    📈 Balance chart will be implemented here
-                </div>
-            </div>
         </div>
 
         <!-- Main Content Sections -->
@@ -380,12 +401,12 @@
                     <div class="change">${summary.profitability.toFixed(1)}% profitability</div>
                 </div>
                 <div class="summary-card">
-                    <h3>Method Breakdown</h3>
-                    <div class="value">${Object.keys(summary.methodBreakdown).length} methods</div>
+                    <h3>Methods Used</h3>
+                    <div class="value">${Object.keys(summary.methodBreakdown).length > 0 ? Object.keys(summary.methodBreakdown).length : 'N/A'}</div>
                     <div class="change">
                         ${Object.entries(summary.methodBreakdown).map(([method, count]) => 
-                            `${method}: ${count}`
-                        ).join(', ') || 'No data'}
+                            `${method.replace('_', ' ')}: ${count}`
+                        ).join(', ') || 'No liquidations recorded'}
                     </div>
                 </div>
             `;
@@ -407,7 +428,7 @@
                         ${entry.amount >= 0 ? '+' : ''}$${entry.amount.toFixed(2)}
                     </td>
                     <td>$${entry.balance.toLocaleString()}</td>
-                    <td title="${entry.description}">${entry.description.substring(0, 40)}${entry.description.length > 40 ? '...' : ''}</td>
+                    <td>${entry.description}</td>
                 </tr>
             `).join('');
             
@@ -422,7 +443,7 @@
             }
 
             const liquidationHtml = insuranceFundData.liquidations.map(liq => `
-                <tr>
+                <tr class="liquidation-main-row">
                     <td>${new Date(liq.timestamp).toLocaleString()}</td>
                     <td><strong>${liq.userId}</strong></td>
                     <td><span class="side-badge ${liq.side}">${liq.side}</span></td>
@@ -433,7 +454,7 @@
                         ${liq.netInsuranceFundImpact >= 0 ? '+' : ''}$${liq.netInsuranceFundImpact.toFixed(2)}
                     </td>
                 </tr>
-                <tr>
+                <tr class="liquidation-detail-row">
                     <td colspan="7" class="liquidation-details">
                         Entry: $${liq.entryPrice.toFixed(2)} → Execution: $${liq.executionPrice.toFixed(2)} 
                         | Bankruptcy: $${liq.bankruptcyPrice.toFixed(2)} 
