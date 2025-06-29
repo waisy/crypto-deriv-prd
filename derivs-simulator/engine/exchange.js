@@ -602,14 +602,14 @@ class Exchange {
     
     this.log('DEBUG', 'Updating PnL for all positions');
     this.positions.forEach(position => {
-      const oldPnL = position.unrealizedPnL;
-      position.updatePnL(this.currentMarkPrice);
+      const currentPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
       this.log('DEBUG', `Position PnL updated`, {
         userId: position.userId,
         side: position.side,
         size: position.size.toString(),
-        oldPnL: oldPnL.toString(),
-        newPnL: position.unrealizedPnL.toString()
+        entryPrice: position.avgEntryPrice.toString(),
+        currentPrice: this.currentMarkPrice.toString(),
+        unrealizedPnL: currentPnL.toString()
       });
     });
     
