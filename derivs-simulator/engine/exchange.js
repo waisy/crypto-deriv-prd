@@ -73,22 +73,13 @@ class Exchange {
     // Calculate PnL for a position
     const calculatePnL = (position, isLiquidationPosition = false) => {
       try {
+        // TODO unclear why we have this as separate for position liquidation engine
         if (isLiquidationPosition) {
           return this.positionLiquidationEngine.calculatePositionPnL(position, this.currentMarkPrice);
         }
-        
-        // For regular positions
-        if (typeof position.calculateUnrealizedPnL === 'function') {
-          return position.calculateUnrealizedPnL(this.currentMarkPrice);
-        }
-        
-        // Fallback if position has unrealizedPnL property
-        if (position.unrealizedPnL) {
-          return new Decimal(position.unrealizedPnL);
-        }
-        
-        console.error('Unable to calculate PnL for position:', position);
-        return new Decimal(0);
+
+        return position.calculateUnrealizedPnL(this.currentMarkPrice);
+
       } catch (error) {
         console.error('Error calculating PnL:', error);
         return new Decimal(0);

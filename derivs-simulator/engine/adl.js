@@ -1,4 +1,5 @@
 const { Decimal } = require('decimal.js');
+const { Position } = require('./position');
 
 class ADLEngine {
   constructor() {
@@ -31,9 +32,12 @@ class ADLEngine {
         } else if (position.unrealizedPnL) {
           unrealizedPnL = new Decimal(position.unrealizedPnL);
         } else {
-          unrealizedPnL = position.side === 'long'
-            ? currentPriceDec.minus(avgEntryPrice).times(size)
-            : avgEntryPrice.minus(currentPriceDec).times(size);
+          unrealizedPnL = Position.calculateUnrealizedPnLStatic(
+            position.side, 
+            avgEntryPrice.toString(), 
+            currentPriceDec.toString(), 
+            size.toString()
+          );
         }
       } catch (pnlError) {
         console.error('❌ Failed to calculate PnL:', pnlError, {
@@ -49,7 +53,7 @@ class ADLEngine {
       }
       
       const userBal = new Decimal(userBalance);
-      const positionValue = size.times(avgEntryPrice);
+      const positionValue = position.getPositionValue();
       
       if (positionValue.isZero()) {
         console.warn('⚠️ Position value is zero, skipping ADL score calculation', {
@@ -101,24 +105,13 @@ class ADLEngine {
   }
 
   // Get ADL queue - positions ranked by ADL score
-  getADLQueue(positions) {
+  getADLQueue(positions, currentPrice) {
     const queue = [];
     
     positions.forEach(position => {
       // Calculate PnL consistently
-      let pnl;
-      if (typeof position.calculateUnrealizedPnL === 'function') {
-        pnl = position.calculateUnrealizedPnL(this.currentMarkPrice);
-      } else if (position.unrealizedPnL) {
-        pnl = new Decimal(position.unrealizedPnL);
-      } else {
-        const size = new Decimal(position.size);
-        const entryPrice = new Decimal(position.avgEntryPrice || position.entryPrice);
-        pnl = position.side === 'long'
-          ? this.currentMarkPrice.minus(entryPrice).times(size)
-          : entryPrice.minus(this.currentMarkPrice).times(size);
-      }
-
+      let pnl = position.calculateUnrealizedPnL(currentPrice);
+  
       if (pnl.greaterThan(0)) { // Only profitable positions
         const adlScore = position.adlScore || 0;
         queue.push({
@@ -440,8 +433,10 @@ class ADLEngine {
   }
 
   // Simulate ADL impact without executing
-  simulateADL(positions, requiredAmount, bankruptPosition) {
-    const adlQueue = this.getADLQueue(positions);
+  simulateADL(positions, requiredAmount, bankruptPosition, currentPrice) {
+    // Use bankruptcy price as fallback if currentPrice not provided
+    const priceToUse = currentPrice || bankruptPosition.avgEntryPrice;
+    const adlQueue = this.getADLQueue(positions, priceToUse);
     const affectedUsers = [];
     let remainingAmount = requiredAmount;
     
@@ -451,9 +446,7 @@ class ADLEngine {
       const position = positions.get(queueItem.userId); // One-way mode: userId only
       if (!position || position.side === bankruptPosition.side) continue;
       
-      const positionSize = new Decimal(position.size);
-      const bankruptEntryPrice = new Decimal(bankruptPosition.avgEntryPrice);
-      const positionValue = positionSize.times(bankruptEntryPrice);
+      const positionValue = position.getPositionValueAtPrice(bankruptPosition.avgEntryPrice);
       const remainingAmountDec = new Decimal(remainingAmount);
       const closeAmount = Decimal.min(remainingAmountDec, positionValue);
       
@@ -494,7 +487,7 @@ class ADLEngine {
       }
     });
     
-    return this.getADLQueue(positionsArray);
+    return this.getADLQueue(positionsArray, currentPrice);
   }
 }
 

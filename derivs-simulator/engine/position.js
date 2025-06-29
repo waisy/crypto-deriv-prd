@@ -80,12 +80,96 @@ class Position {
     }
   }
 
+  calculateUnrealizedPnL(currentPrice) {
+    const decCurrentPrice = new Decimal(currentPrice);
+    if (decCurrentPrice.isNegative() || decCurrentPrice.isZero()) {
+      throw new Error('Invalid current price for PnL calculation');
+    }
+
+    if (this.side === 'long') {
+      return decCurrentPrice.minus(this.avgEntryPrice).times(this.size);
+    } else {
+      return this.avgEntryPrice.minus(decCurrentPrice).times(this.size);
+    }
+  }
+
+  calculateRealizedLoss(executionPrice, executedSize = null) {
+    const decExecutionPrice = new Decimal(executionPrice);
+    const decExecutedSize = executedSize ? new Decimal(executedSize) : this.size;
+    
+    if (decExecutionPrice.isNegative() || decExecutionPrice.isZero()) {
+      throw new Error('Invalid execution price for loss calculation');
+    }
+
+    // Calculate the loss (positive value) when closing at executionPrice
+    let loss;
+    if (this.side === 'long') {
+      // Long: loss when price drops below entry
+      loss = this.avgEntryPrice.minus(decExecutionPrice).times(decExecutedSize);
+    } else {
+      // Short: loss when price rises above entry  
+      loss = decExecutionPrice.minus(this.avgEntryPrice).times(decExecutedSize);
+    }
+    
+    // Return max(0, loss) to ensure we only return positive losses
+    return Decimal.max(0, loss);
+  }
+
+  static calculateRealizedLossStatic(side, entryPrice, executionPrice, executedSize) {
+    const decEntryPrice = new Decimal(entryPrice);
+    const decExecutionPrice = new Decimal(executionPrice);
+    const decExecutedSize = new Decimal(executedSize);
+    
+    if (decExecutionPrice.isNegative() || decExecutionPrice.isZero()) {
+      throw new Error('Invalid execution price for loss calculation');
+    }
+
+    // Calculate the loss (positive value) when closing at executionPrice
+    let loss;
+    if (side === 'long') {
+      // Long: loss when price drops below entry
+      loss = decEntryPrice.minus(decExecutionPrice).times(decExecutedSize);
+    } else {
+      // Short: loss when price rises above entry  
+      loss = decExecutionPrice.minus(decEntryPrice).times(decExecutedSize);
+    }
+    
+    // Return max(0, loss) to ensure we only return positive losses
+    return Decimal.max(0, loss);
+  }
+
+  static calculateUnrealizedPnLStatic(side, entryPrice, currentPrice, size) {
+    const decEntryPrice = new Decimal(entryPrice);
+    const decCurrentPrice = new Decimal(currentPrice);
+    const decSize = new Decimal(size);
+    
+    if (decCurrentPrice.isNegative() || decCurrentPrice.isZero()) {
+      throw new Error('Invalid current price for PnL calculation');
+    }
+
+    if (side === 'long') {
+      return decCurrentPrice.minus(decEntryPrice).times(decSize);
+    } else {
+      return decEntryPrice.minus(decCurrentPrice).times(decSize);
+    }
+  }
+
   getPositionValue() {
     return this.size.times(this.avgEntryPrice);
   }
 
+  getPositionValueAtPrice(price) {
+    return this.size.times(new Decimal(price));
+  }
+
   getNotionalValue(currentPrice) {
     return this.size.times(new Decimal(currentPrice));
+  }
+
+  calculateLiquidationFee(currentPrice, feeRate) {
+    const decCurrentPrice = new Decimal(currentPrice);
+    const decFeeRate = new Decimal(feeRate);
+    return this.size.times(decCurrentPrice).times(decFeeRate);
   }
 
   getRoE() {
@@ -160,4 +244,24 @@ class Position {
   }
 }
 
-module.exports = { Position }; 
+class LiquidationPosition extends Position {
+  constructor(originalPosition, bankruptcyPrice, userId, liquidationId) {
+    super(userId, originalPosition.side, originalPosition.size, bankruptcyPrice, 1);
+    
+    // Liquidation-specific properties
+    this.id = liquidationId; // ID managed by the liquidation engine
+    this.originalUserId = userId;
+    this.originalPositionId = originalPosition.id || originalPosition.userId; // Fallback for positions without id
+    this.bankruptcyPrice = new Decimal(bankruptcyPrice);
+    this.originalEntryPrice = new Decimal(originalPosition.avgEntryPrice);
+    this.transferTime = Date.now();
+    this.status = 'pending'; // pending, attempting_orderbook, orderbook_failed, adl_required, completed
+    this.attempts = 0;
+    this.lastAttemptTime = null;
+    
+    // Override the avgEntryPrice to be bankruptcy price for P&L calculations
+    this.avgEntryPrice = new Decimal(bankruptcyPrice);
+  }
+}
+
+module.exports = { Position, LiquidationPosition }; 

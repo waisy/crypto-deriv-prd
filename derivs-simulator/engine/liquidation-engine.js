@@ -1,4 +1,5 @@
 const Decimal = require('decimal.js');
+const { LiquidationPosition } = require('./position');
 
 class PositionLiquidationEngine {
     constructor() {
@@ -24,22 +25,7 @@ class PositionLiquidationEngine {
             currentPositionsCount: this.positions.length
         });
         
-        const liquidationPosition = {
-            id: this.nextPositionId++,
-            originalUserId: userId,
-            originalPositionId: originalPosition.id,
-            side: originalPosition.side,
-            size: new Decimal(originalPosition.size),
-            entryPrice: new Decimal(bankruptcyPrice), // CRITICAL FIX: Use bankruptcy price as entry price
-            bankruptcyPrice: new Decimal(bankruptcyPrice), // Store bankruptcy price separately
-            originalEntryPrice: new Decimal(originalPosition.avgEntryPrice), // For audit trail
-            transferTime: Date.now(),
-            status: 'pending', // pending, attempting_orderbook, orderbook_failed, adl_required, completed
-            attempts: 0,
-            lastAttemptTime: null
-            // NOTE: Deliberately NOT copying unrealizedPnL from original position
-            // We want fresh calculation based on bankruptcy price entry
-        };
+        const liquidationPosition = new LiquidationPosition(originalPosition, bankruptcyPrice, userId, this.nextPositionId++);
 
         this.positions.push(liquidationPosition);
         
@@ -80,25 +66,11 @@ class PositionLiquidationEngine {
 
     /**
      * Calculate P&L for a specific liquidation position
-     * @param {Object} position - Liquidation position
+     * @param {LiquidationPosition} position - Liquidation position
      * @param {Decimal} currentPrice - Current mark price
      */
     calculatePositionPnL(position, currentPrice) {
-        // Handle both Decimal objects and string representations
-        const entryPrice = position.entryPrice instanceof Decimal ? 
-            position.entryPrice : new Decimal(position.entryPrice || position.avgEntryPrice || 0);
-        const size = position.size instanceof Decimal ? 
-            position.size : new Decimal(position.size || 0);
-        const currentPriceDec = currentPrice instanceof Decimal ? 
-            currentPrice : new Decimal(currentPrice || 0);
-        
-        // For liquidation engine positions, ALWAYS calculate fresh PnL
-        // Don't trust any pre-existing unrealizedPnL fields from original positions
-        const priceDiff = position.side === 'long' 
-            ? currentPriceDec.minus(entryPrice)
-            : entryPrice.minus(currentPriceDec);
-        
-        return priceDiff.times(size);
+        return position.calculateUnrealizedPnL(currentPrice);
     }
 
     /**

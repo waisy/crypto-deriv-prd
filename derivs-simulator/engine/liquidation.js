@@ -1,7 +1,10 @@
 const { Decimal } = require('decimal.js');
+const { Position } = require('./position');
 
 class LiquidationEngine {
-  constructor(matchingEngine = null, orderBook = null, marginCalculator = null, adlEngine = null) {
+  constructor(matchingEngine, orderBook, marginCalculator, adlEngine) {
+    // TODO: insurance fund should be initialised through a deposit, not hardcoded number here
+    // TODO: liquidation fee should be a parameter / calculation somewhere we can setup somewhere, not hardcoded number here
     this.liquidationFeeRate = new Decimal(0.005); // 0.5% liquidation fee
     this.insuranceFund = new Decimal(1000000); // $1M insurance fund
     this.matchingEngine = matchingEngine;
@@ -68,31 +71,13 @@ class LiquidationEngine {
     return this.marginCalculator.shouldLiquidate(position, currentPrice);
   }
 
-  // DEPRECATED: Use MarginCalculator.calculateLiquidationPrice instead
-  calculateLiquidationPrice(position) {
-    if (this.marginCalculator) {
-      return this.marginCalculator.calculateLiquidationPrice(position);
-    }
-    
-    // Fallback calculation - should be removed once marginCalculator is always available
-    const { avgEntryPrice, leverage, side } = position;
-    const mmr = 0.005; // 0.5% maintenance margin rate
-
-    if (side === 'long') {
-      return avgEntryPrice * (1 - 1/leverage + mmr);
-    } else {
-      return avgEntryPrice * (1 + 1/leverage - mmr);
-    }
-  }
-
-  // NEW: Real liquidation with market order execution
-  async liquidate(position, currentPrice, allPositions, forceMode = false) {
+  async liquidate(position, currentPrice, allPositions) {
     console.log('='.repeat(60));
     console.log(`🔥 STARTING LIQUIDATION PROCESS for ${position.userId}`);
     console.log('='.repeat(60));
     
     const decCurrentPrice = new Decimal(currentPrice);
-    const liquidationFee = position.size.times(decCurrentPrice).times(this.liquidationFeeRate);
+    const liquidationFee = position.calculateLiquidationFee(decCurrentPrice, this.liquidationFeeRate);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
     
     console.log(`📊 LIQUIDATION DETAILS:`, {
@@ -103,16 +88,10 @@ class LiquidationEngine {
       currentPrice: decCurrentPrice.toString(),
       bankruptcyPrice: bankruptcyPrice.toString(),
       initialMargin: position.initialMargin.toString(),
-      unrealizedPnL: position.unrealizedPnL.toString(),
-      forceMode
+      unrealizedPnL: position.unrealizedPnL.toString()
     });
     
-    let preLiquidationLoss;
-    if (position.side === 'long') {
-      preLiquidationLoss = Decimal.max(0, position.avgEntryPrice.minus(decCurrentPrice).times(position.size));
-    } else {
-      preLiquidationLoss = Decimal.max(0, decCurrentPrice.minus(position.avgEntryPrice).times(position.size));
-    }
+    let preLiquidationLoss = position.calculateUnrealizedPnL(decCurrentPrice).abs();
     
     console.log(`💸 Pre-liquidation loss: $${preLiquidationLoss.toString()}`);
     console.log(`🏛️ Current insurance fund balance: $${this.insuranceFund.toString()}`);
@@ -127,18 +106,7 @@ class LiquidationEngine {
       const size = new Decimal(pos.size);
       
       // Handle PnL calculation for both types of positions
-      let pnl;
-      if (typeof pos.calculateUnrealizedPnL === 'function') {
-        pnl = pos.calculateUnrealizedPnL(decCurrentPrice);
-      } else if (pos.unrealizedPnL) {
-        pnl = new Decimal(pos.unrealizedPnL);
-      } else {
-        // Calculate PnL manually if neither method is available
-        const entryPrice = new Decimal(pos.avgEntryPrice || pos.entryPrice);
-        pnl = pos.side === 'long' 
-          ? decCurrentPrice.minus(entryPrice).times(size)
-          : entryPrice.minus(decCurrentPrice).times(size);
-      }
+      let pnl = pos.calculateUnrealizedPnL(decCurrentPrice);
 
       if (pos.side === 'long') {
         userLongs = userLongs.plus(size);
@@ -183,14 +151,9 @@ class LiquidationEngine {
     };
 
     try {
-      if (this.matchingEngine && this.orderBook && !forceMode) {
-        console.log(`📋 ATTEMPTING LIQUIDATION VIA ORDER BOOK`);
-        liquidationResult = await this.executeRealLiquidation(position, liquidationResult);
-      } else {
-        console.log(`📋 USING FALLBACK LIQUIDATION MODE (forceMode: ${forceMode})`);
-        liquidationResult = this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
-      }
-
+      console.log(`📋 ATTEMPTING LIQUIDATION VIA ORDER BOOK`);
+      liquidationResult = await this.executeLiquidation(position, liquidationResult);
+      
       console.log(`📋 LIQUIDATION METHOD RESULT:`, {
         method: liquidationResult.method,
         totalExecuted: liquidationResult.totalExecuted.toString(),
@@ -207,17 +170,32 @@ class LiquidationEngine {
 
     } catch (error) {
       console.error(`❌ Liquidation failed for ${position.userId}:`, error);
-      console.log(`🔄 FALLING BACK TO MARK PRICE LIQUIDATION`);
-      const fallbackResult = this.executeFallbackLiquidation(position, decCurrentPrice, liquidationResult);
-      this.updateInsuranceFund(fallbackResult, allPositions);
-      return fallbackResult;
+      console.log(`📋 ERROR FALLBACK - executing at bankruptcy price`);
+      
+      // Fallback to bankruptcy price liquidation on error
+      const bankruptcyPrice = this.calculateBankruptcyPrice(position);
+      liquidationResult.method = 'bankruptcy_price';
+      liquidationResult.executionPrice = bankruptcyPrice;
+      liquidationResult.totalExecuted = position.size;
+      liquidationResult.fills = [];
+      liquidationResult.slippage = new Decimal(0);
+      
+      const executedValue = liquidationResult.totalExecuted.times(liquidationResult.executionPrice);
+      const liquidationFeeActual = executedValue.times(this.liquidationFeeRate);
+      
+      const totalLoss = position.calculateRealizedLoss(liquidationResult.executionPrice, liquidationResult.totalExecuted);
+      liquidationResult.remainingBalance = Decimal.max(0, position.initialMargin.minus(totalLoss).minus(liquidationFeeActual));
+      
+      this.updateInsuranceFund(liquidationResult, allPositions);
+      
+      console.log(`✅ FALLBACK LIQUIDATION COMPLETED for ${position.userId}`);
+      console.log('='.repeat(60));
+      return liquidationResult;
     }
   }
 
-  async executeRealLiquidation(position, liquidationResult) {
-    const liquidationSide = position.side === 'long' ? 'sell' : 'buy';
-    
-    const liquidationOrder = {
+  getMarketLiquidationOrder(position, liquidationSide) {
+    return {
       id: `liq_${Date.now()}_${position.userId}`,
       userId: 'liquidation_engine', // Special liquidation user
       side: liquidationSide,
@@ -238,6 +216,12 @@ class LiquidationEngine {
       marginReserved: 0,
       isLiquidation: true // Special flag
     };
+  }
+
+  async executeLiquidation(position, liquidationResult) {
+    const liquidationSide = position.side === 'long' ? 'sell' : 'buy';
+    
+    const liquidationOrder = this.getMarketLiquidationOrder(position, liquidationSide);
 
     const matches = this.matchingEngine.match(liquidationOrder);
     
@@ -245,70 +229,33 @@ class LiquidationEngine {
     liquidationResult.fills = liquidationOrder.fills || [];
     liquidationResult.totalExecuted = totalExecuted;
     
-    if (totalExecuted.isZero()) {
-      console.log(`No market liquidity for liquidation - falling back to insurance fund execution at mark price`);
-      return this.executeFallbackLiquidation(position, liquidationResult.executionPrice, liquidationResult);
+    // Check if order was filled via order book
+    if (totalExecuted.gt(0)) {
+      // Successfully executed via order book
+      const avgExecutionPrice = new Decimal(liquidationOrder.avgFillPrice);
+      liquidationResult.method = 'market_order';
+      liquidationResult.executionPrice = avgExecutionPrice;
+      liquidationResult.slippage = avgExecutionPrice.minus(liquidationResult.executionPrice).abs().dividedBy(liquidationResult.executionPrice);
+    } else {
+      // No liquidity in order book - fall back to bankruptcy price liquidation
+      console.log(`📋 No order book liquidity - falling back to bankruptcy price`);
+      const bankruptcyPrice = this.calculateBankruptcyPrice(position);
+      liquidationResult.method = 'bankruptcy_price';
+      liquidationResult.executionPrice = bankruptcyPrice;
+      liquidationResult.totalExecuted = position.size; // Execute full position at bankruptcy price
+      liquidationResult.fills = []; // No fills from order book
+      liquidationResult.slippage = new Decimal(0); // No slippage at bankruptcy price
     }
-    
-    const avgExecutionPrice = new Decimal(liquidationOrder.avgFillPrice || liquidationResult.executionPrice);
-    liquidationResult.method = 'market_order';
-    liquidationResult.executionPrice = avgExecutionPrice;
-    liquidationResult.slippage = avgExecutionPrice.minus(liquidationResult.executionPrice).abs().dividedBy(liquidationResult.executionPrice);
 
-    const executedValue = totalExecuted.times(avgExecutionPrice);
+    const executedValue = liquidationResult.totalExecuted.times(liquidationResult.executionPrice);
     const liquidationFeeActual = executedValue.times(this.liquidationFeeRate);
     
-    let totalLoss;
-    if (position.side === 'long') {
-      totalLoss = position.avgEntryPrice.minus(avgExecutionPrice).times(totalExecuted);
-    } else {
-      totalLoss = avgExecutionPrice.minus(position.avgEntryPrice).times(totalExecuted);
-    }
+    const totalLoss = position.calculateRealizedLoss(liquidationResult.executionPrice, liquidationResult.totalExecuted);
     liquidationResult.remainingBalance = Decimal.max(0, position.initialMargin.minus(totalLoss).minus(liquidationFeeActual));
 
     return liquidationResult;
   }
 
-  executeFallbackLiquidation(position, currentPrice, liquidationResult) {
-    console.log(`🚨 EXECUTING FALLBACK LIQUIDATION (Insurance Fund Mode)`);
-    console.log(`   This is where the position might "disappear" - we need to track this carefully!`);
-    
-    // CRITICAL FIX: Use bankruptcy price instead of current market price
-    const bankruptcyPrice = liquidationResult.bankruptcyPrice;
-    const decBankruptcyPrice = new Decimal(bankruptcyPrice);
-    const positionValue = position.size.times(decBankruptcyPrice);
-    const liquidationFee = positionValue.times(this.liquidationFeeRate);
-    
-    console.log(`💼 FALLBACK LIQUIDATION CALCULATION:`, {
-      positionSide: position.side,
-      positionSize: position.size.toString(),
-      entryPrice: position.avgEntryPrice.toString(),
-      bankruptcyPrice: decBankruptcyPrice.toString(),
-      currentMarketPrice: currentPrice.toString(),
-      executionPrice: decBankruptcyPrice.toString(),
-      positionValue: positionValue.toString(),
-      liquidationFee: liquidationFee.toString()
-    });
-    
-    let totalLoss;
-    if (position.side === 'long') {
-      totalLoss = Decimal.max(0, position.avgEntryPrice.minus(decBankruptcyPrice).times(position.size));
-    } else {
-      totalLoss = Decimal.max(0, decBankruptcyPrice.minus(position.avgEntryPrice).times(position.size));
-    }
-    
-    console.log(`💸 CALCULATED LOSS: $${totalLoss.toString()}`);
-    console.log(`⚠️  CRITICAL: Position of ${position.side} ${position.size.toString()} BTC will be REMOVED from the system`);
-    console.log(`⚠️  CRITICAL: This breaks zero-sum invariant unless position is transferred to liquidation engine!`);
-    
-    liquidationResult.method = 'bankruptcy_price';
-    liquidationResult.executionPrice = decBankruptcyPrice;
-    liquidationResult.totalExecuted = position.size;
-    liquidationResult.remainingBalance = Decimal.max(0, position.initialMargin.minus(totalLoss).minus(liquidationFee));
-    liquidationResult.liquidationFee = liquidationFee;
-
-    return liquidationResult;
-  }
 
   updateInsuranceFund(liquidationResult, allPositions) {
     console.log(`💰 INSURANCE FUND UPDATE PROCESS STARTING`);
@@ -355,12 +302,8 @@ class LiquidationEngine {
       console.log(`🚨 USER IS BANKRUPT - Insurance fund must cover losses beyond margin`);
       console.log(`⚠️  CRITICAL MOMENT: This is where the accounting gets tricky!`);
       const bankruptPosition = { side, avgEntryPrice: bankruptcyPrice };
-      let actualLoss;
-      if (side === 'long') {
-        actualLoss = Decimal.max(0, new Decimal(entryPrice).minus(executionPrice).times(totalExecuted));
-      } else {
-        actualLoss = Decimal.max(0, new Decimal(executionPrice).minus(entryPrice).times(totalExecuted));
-      }
+      // TODO we shouldn't need this static method. It's because we lost access to the position object.
+      const actualLoss = Position.calculateRealizedLossStatic(side, entryPrice, executionPrice, totalExecuted);
       
       console.log(`💸 BANKRUPTCY LOSS CALCULATION:`, {
         entryPrice: entryPrice.toString(),
@@ -528,18 +471,7 @@ class LiquidationEngine {
   }
 
   calculateBankruptcyPrice(position) {
-    if (this.marginCalculator) {
-      return this.marginCalculator.calculateBankruptcyPrice(position);
-    }
-    // Fallback
-    const { side } = position;
-    const avgEntryPrice = new Decimal(position.avgEntryPrice);
-    const leverage = new Decimal(position.leverage);
-    if (side === 'long') {
-      return avgEntryPrice.times(new Decimal(1).minus(new Decimal(1).div(leverage)));
-    } else {
-      return avgEntryPrice.times(new Decimal(1).plus(new Decimal(1).div(leverage)));
-    }
+      return this.marginCalculator.calculateBankruptcyPrice(position);  
   }
 
   // NEW: Queue-based liquidation processing
@@ -603,7 +535,7 @@ class LiquidationEngine {
       initialMargin: position.initialMargin * reductionPercentage
     };
     
-    const liquidation = this.liquidate(partialPosition, currentPrice, [], true); // Force mode for partials
+    const liquidation = this.liquidate(partialPosition, currentPrice, []); // Force mode for partials
     
     // Update the original position
     position.size = remainingSize;

@@ -33,7 +33,7 @@ class TestClient {
   }
 
   handleMessage(message) {
-    console.log(`📨 Received message:`, message);
+    // Reduce logging to avoid race conditions
     if (message.requestId) {
       this.responses.set(message.requestId, message);
     }
@@ -43,13 +43,11 @@ class TestClient {
     const requestId = ++this.requestId;
     const message = { ...data, requestId };
     
-    console.log(`📤 Sending message:`, message.type);
     this.ws.send(JSON.stringify(message));
     
     // Wait for response
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        console.log(`⏰ Timeout waiting for response to ${message.type}`);
         reject(new Error(`Timeout waiting for response to ${message.type}`));
       }, 10000);
       
@@ -58,7 +56,6 @@ class TestClient {
           clearTimeout(timeout);
           const response = this.responses.get(requestId);
           this.responses.delete(requestId);
-          console.log(`📥 Received response for ${message.type}:`, response.success ? 'SUCCESS' : 'ERROR');
           resolve(response);
         } else {
           setTimeout(checkResponse, 10);
@@ -230,15 +227,33 @@ function takeSnapshot(state, label) {
   };
 }
 
-async function runTest() {
-  console.log('🧪 SIMPLE ADL BALANCE TEST');
-  console.log('========================================');
-  console.log();
-
-  const client = new TestClient();
+describe('Simple ADL Balance Tests', () => {
+  let client;
   
-  try {
+  beforeEach(async () => {
+    client = new TestClient();
     await client.connect();
+  }, 10000);
+  
+  afterEach(async () => {
+    if (client && client.ws) {
+      // Properly close WebSocket and wait for closure
+      client.ws.close();
+      await new Promise(resolve => {
+        if (client.ws.readyState === client.ws.CLOSED) {
+          resolve();
+        } else {
+          client.ws.on('close', () => resolve());
+        }
+        // Fallback timeout
+        setTimeout(resolve, 200);
+      });
+    }
+  });
+
+  test('should maintain balance conservation through liquidation and ADL process', async () => {
+    console.log('🧪 SIMPLE ADL BALANCE TEST');
+    console.log('========================================');
     
     // Take initial snapshot (no need to reset insurance fund for this test)
     console.log('📝 Creating positions...');
@@ -270,7 +285,6 @@ async function runTest() {
 
     // Analysis
     console.log('📊 ANALYSIS:');
-    console.log();
     
     const analysis1 = analyzeBalanceChange(initial, afterPositions, 'initial → after_positions');
     const analysis2 = analyzeBalanceChange(afterPositions, afterLiquidation, 'after_positions → after_liquidation');
@@ -291,13 +305,8 @@ async function runTest() {
       console.log('   This indicates a bug in the margin/balance handling.');
     }
 
-  } catch (error) {
-    console.error('❌ Test failed:', error);
-  } finally {
-    client.close();
-    console.log();
+    // Verify overall system conservation with assertions
+    expect(Math.abs(analysis4.totalChange)).toBeLessThan(1); // Allow small rounding errors
     console.log('✅ Test completed');
-  }
-}
-
-runTest().catch(console.error);
+  }, 30000); // 30 second timeout for complex test
+});
