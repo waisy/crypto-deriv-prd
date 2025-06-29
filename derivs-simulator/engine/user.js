@@ -4,7 +4,6 @@ class User {
   constructor(id, name, initialBalance) {
     this.id = id;
     this.name = name;
-    this.totalBalance = new Decimal(initialBalance);
     this.availableBalance = new Decimal(initialBalance);
     this.usedMargin = new Decimal(0);
     this.unrealizedPnL = new Decimal(0);
@@ -12,10 +11,26 @@ class User {
     this.totalPnL = new Decimal(0);
   }
 
-  updateBalance(amount) {
+  getTotalBalance() {
+    return this.availableBalance.plus(this.usedMargin);
+  }
+
+  updateAvailableBalance(amount) {
     const decAmount = new Decimal(amount);
     this.availableBalance = this.availableBalance.plus(decAmount);
-    this.totalBalance = this.totalBalance.plus(decAmount);
+  }
+
+  deposit(amount) {
+    const decAmount = new Decimal(amount);
+    this.availableBalance = this.availableBalance.plus(decAmount);
+  }
+
+  withdraw(amount) {
+    const decAmount = new Decimal(amount);
+    if (decAmount.greaterThan(this.availableBalance)) {
+      throw new Error('Insufficient available balance for withdrawal');
+    }
+    this.availableBalance = this.availableBalance.minus(decAmount);
   }
 
   updatePnL(unrealizedPnL) {
@@ -28,7 +43,7 @@ class User {
   }
 
   getEquity() {
-    return this.totalBalance.plus(this.unrealizedPnL);
+    return this.getTotalBalance().plus(this.unrealizedPnL);
   }
 
   toJSON() {
@@ -36,7 +51,7 @@ class User {
     return {
       id: this.id,
       name: this.name,
-      totalBalance: this.totalBalance.toString(),
+      totalBalance: this.getTotalBalance().toString(),
       availableBalance: this.availableBalance.toString(),
       usedMargin: this.usedMargin.toString(),
       unrealizedPnL: this.unrealizedPnL.toString(),

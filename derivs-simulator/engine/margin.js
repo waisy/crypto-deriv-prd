@@ -51,12 +51,19 @@ class MarginCalculator {
   calculateBankruptcyPrice(position) {
     const { side } = position;
     const avgEntryPrice = new Decimal(position.avgEntryPrice);
-    const leverage = new Decimal(position.leverage);
-
+    const initialMargin = new Decimal(position.initialMargin);
+    const size = new Decimal(position.size);
+    
+    // Margin-based calculation: more robust than leverage-based
+    // Bankruptcy price is where total loss equals initial margin
+    const marginPerUnit = initialMargin.dividedBy(size);
+    
     if (side === 'long') {
-      return avgEntryPrice.times(new Decimal(1).minus(new Decimal(1).dividedBy(leverage)));
+      // For long: bankruptcy price = entry price - (margin per unit)
+      return avgEntryPrice.minus(marginPerUnit);
     } else {
-      return avgEntryPrice.times(new Decimal(1).plus(new Decimal(1).dividedBy(leverage)));
+      // For short: bankruptcy price = entry price + (margin per unit)
+      return avgEntryPrice.plus(marginPerUnit);
     }
   }
 

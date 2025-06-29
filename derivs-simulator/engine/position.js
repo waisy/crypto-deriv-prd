@@ -47,6 +47,10 @@ class Position {
       realizedPnL = this.avgEntryPrice.minus(decPrice).times(decReductionSize);
     }
 
+    // Calculate margin to release proportionally
+    const marginToRelease = this.initialMargin.times(decReductionSize.dividedBy(this.size));
+    this.initialMargin = this.initialMargin.minus(marginToRelease);
+
     this.size = this.size.minus(decReductionSize);
     
     return realizedPnL;
@@ -58,7 +62,9 @@ class Position {
       throw new Error('Invalid price for closing position');
     }
 
-    return this.reduceSize(this.size, decPrice);
+    const realizedPnL = this.reduceSize(this.size, decPrice);
+    this.initialMargin = new Decimal(0);
+    return realizedPnL;
   }
 
   updatePnL(currentPrice) {
@@ -87,6 +93,20 @@ class Position {
       return new Decimal(0);
     }
     return this.unrealizedPnL.dividedBy(this.initialMargin).times(100);
+  }
+
+  calculateBankruptcyPrice() {
+    // Margin-based calculation: more robust than leverage-based
+    // Bankruptcy price is where total loss equals initial margin
+    const marginPerUnit = this.initialMargin.dividedBy(this.size);
+    
+    if (this.side === 'long') {
+      // For long: bankruptcy price = entry price - (margin per unit)
+      return this.avgEntryPrice.minus(marginPerUnit);
+    } else {
+      // For short: bankruptcy price = entry price + (margin per unit)  
+      return this.avgEntryPrice.plus(marginPerUnit);
+    }
   }
 
   calculateADLScore(totalBalance) {
@@ -130,6 +150,7 @@ class Position {
       initialMargin: this.initialMargin.toString(),
       maintenanceMargin: this.maintenanceMargin.toString(),
       liquidationPrice: this.liquidationPrice.toString(),
+      bankruptcyPrice: this.calculateBankruptcyPrice().toString(),
       timestamp: this.timestamp,
       positionValue: this.getPositionValue().toString(),
       roe: this.getRoE().toString(),

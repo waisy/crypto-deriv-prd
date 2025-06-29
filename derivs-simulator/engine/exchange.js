@@ -8,6 +8,7 @@ const { LiquidationEngine } = require('./liquidation');
 const { ADLEngine } = require('./adl');
 const { MarginMonitor } = require('./margin-monitor');
 const PositionLiquidationEngine = require('./liquidation-engine');
+const { PerformanceOptimizer } = require('./performance-optimizer');
 
 class Exchange {
   constructor() {
@@ -22,9 +23,12 @@ class Exchange {
     this.users = new Map();
     this.positions = new Map();
     this.trades = [];
-    this.currentMarkPrice = new Decimal(45000);
-    this.indexPrice = new Decimal(45000);
+    this.currentMarkPrice = new Decimal(50000);
+    this.indexPrice = new Decimal(50000);
     this.fundingRate = new Decimal(0.0001);
+    
+    // ADL socialization tracking
+    this.adlSocializationAmounts = new Map(); // positionId -> amount to socialize
     
     // Logging and audit
     this.logLevel = 'DEBUG'; // DEBUG, INFO, WARN, ERROR
@@ -204,6 +208,10 @@ class Exchange {
         return await this.forceLiquidation(data.userId);
       case 'liquidation_step':
         return await this.executeLiquidationStep(data.method);
+      case 'get_state':
+        return { success: true, state: this.getState() };
+      case 'manual_adjustment':
+        return this.liquidationEngine.manualAdjustment(data.amount, data.description);
       default:
         throw new Error(`Unknown message type: ${data.type}`);
     }
@@ -231,6 +239,9 @@ class Exchange {
       throw new Error('Insufficient margin');
     }
 
+    // Update available balance but don't deduct from total balance
+    user.availableBalance = user.availableBalance.minus(marginReq);
+    
     const order = {
       id: Date.now().toString(),
       userId,
@@ -317,10 +328,15 @@ class Exchange {
     const decSize = new Decimal(size);
 
     this.log('DEBUG', `Updating positions from trade`);
-    this.updatePosition(buyOrder.userId, 'long', decSize, decPrice, buyOrder.leverage);
-    this.updatePosition(sellOrder.userId, 'short', decSize, decPrice, sellOrder.leverage);
+    
+    // For ADL trades, use the socialization price
+    const isADLTrade = buyOrder.userId === 'liquidation_engine' || sellOrder.userId === 'liquidation_engine';
+    const tradePrice = isADLTrade ? this.adlEngine.getLastSocializationPrice() || decPrice : decPrice;
+    
+    this.updatePosition(buyOrder.userId, 'long', decSize, tradePrice, buyOrder.leverage);
+    this.updatePosition(sellOrder.userId, 'short', decSize, tradePrice, sellOrder.leverage);
 
-    this.updateUserBalances(buyOrder, sellOrder, decPrice, decSize);
+    this.updateUserBalances(buyOrder, sellOrder, tradePrice, decSize);
     
     this.logZeroSumCheck('After trade processing');
   }
@@ -388,6 +404,16 @@ class Exchange {
     let position = this.positions.get(positionKey);
     let realizedPnL = new Decimal(0);
     
+    // Check if user exists
+    const user = this.users.get(userId);
+    if (!user) {
+      this.log('ERROR', `❌ User not found for position update`, {
+        userId,
+        availableUsers: Array.from(this.users.keys())
+      });
+      return;
+    }
+    
     this.log('DEBUG', `📈 UPDATING POSITION`, {
       userId,
       side,
@@ -410,9 +436,15 @@ class Exchange {
       position = new Position(userId, side, size, price, leverage);
       this.positions.set(positionKey, position);
       
+      // Calculate and store the margin that was reserved during order placement
+      const reservedMargin = this.marginCalculator.calculateInitialMargin(size, price, leverage);
+      user.usedMargin = user.usedMargin.plus(reservedMargin);
+      
       this.log('DEBUG', `Position created successfully`, {
         positionSize: position.size.toString(),
-        positionSide: position.side
+        positionSide: position.side,
+        reservedMargin: reservedMargin.toString(),
+        userUsedMargin: user.usedMargin.toString()
       });
     } else {
       if (position.side === side) {
@@ -423,7 +455,19 @@ class Exchange {
           currentSize: position.size.toString(),
           newTotalSize: position.size.plus(size).toString()
         });
+        
+        // Calculate additional margin needed for the new size
+        const additionalMargin = this.marginCalculator.calculateInitialMargin(size, price, leverage);
         position.addSize(size, price);
+        
+        // Update usedMargin for the additional size
+        user.usedMargin = user.usedMargin.plus(additionalMargin);
+        
+        this.log('DEBUG', `Added margin for additional position size`, {
+          additionalSize: size.toString(),
+          additionalMargin: additionalMargin.toString(),
+          userUsedMargin: user.usedMargin.toString()
+        });
       } else {
         this.log('INFO', `🔄 OPPOSITE SIDE TRADE - REDUCING/FLIPPING POSITION`, {
           userId,
@@ -433,53 +477,65 @@ class Exchange {
           newSize: size.toString()
         });
         
+        const marginToRelease = position.initialMargin.times(size.dividedBy(position.size));
+        
         if (size.lessThan(position.size)) {
           this.log('DEBUG', `Partially closing position`);
           realizedPnL = position.reduceSize(size, price);
+          
+          // Release proportional margin
+          user.usedMargin = user.usedMargin.minus(marginToRelease);
+          user.availableBalance = user.availableBalance.plus(marginToRelease).plus(realizedPnL);
+          
           this.log('INFO', `💰 POSITION PARTIALLY CLOSED`, {
             userId,
             reducedBy: size.toString(),
             remainingSize: position.size.toString(),
-            realizedPnL: realizedPnL.toString()
+            realizedPnL: realizedPnL.toString(),
+            marginReleased: marginToRelease.toString()
           });
         } else if (size.equals(position.size)) {
           this.log('DEBUG', `Fully closing position`);
           realizedPnL = position.closePosition(price);
+          
+          // Release all margin
+          user.usedMargin = user.usedMargin.minus(position.initialMargin);
+          user.availableBalance = user.availableBalance.plus(position.initialMargin).plus(realizedPnL);
+          
           this.positions.delete(positionKey);
           
           this.log('INFO', `✅ POSITION FULLY CLOSED`, {
             userId,
             closedSize: size.toString(),
-            realizedPnL: realizedPnL.toString()
+            realizedPnL: realizedPnL.toString(),
+            marginReleased: position.initialMargin.toString()
           });
-          
-          const user = this.users.get(userId);
-          user.updateBalance(realizedPnL);
-          user.usedMargin = user.usedMargin.minus(position.initialMargin);
-          return;
         } else {
           this.log('DEBUG', `Closing position and opening new opposite position`);
           const excessSize = size.minus(position.size);
           realizedPnL = position.closePosition(price);
           
+          // Release all margin from old position
+          user.usedMargin = user.usedMargin.minus(position.initialMargin);
+          user.availableBalance = user.availableBalance.plus(position.initialMargin).plus(realizedPnL);
+          
           this.positions.delete(positionKey);
           position = new Position(userId, side, excessSize, price, leverage);
           this.positions.set(positionKey, position);
           
-          this.log('INFO', `🔄 POSITION FLIPPED`, {
-            userId,
-            oldSide: side === 'long' ? 'short' : 'long',
-            newSide: side,
-            excessSize: excessSize.toString(),
-            realizedPnL: realizedPnL.toString()
-          });
-        }
-        
-        const user = this.users.get(userId);
-        user.updateBalance(realizedPnL);
-        
-        if (size.greaterThanOrEqualTo(position.size)) {
-          user.usedMargin = user.usedMargin.minus(position.initialMargin);
+          // Calculate and update usedMargin for the new position
+          const newPositionMargin = this.marginCalculator.calculateInitialMargin(excessSize, price, leverage);
+          user.usedMargin = user.usedMargin.plus(newPositionMargin);
+          
+                      this.log('INFO', `🔄 POSITION FLIPPED`, {
+              userId,
+              oldSide: side === 'long' ? 'short' : 'long',
+              newSide: side,
+              excessSize: excessSize.toString(),
+              realizedPnL: realizedPnL.toString(),
+              newPositionMargin: newPositionMargin.toString(),
+              userUsedMargin: user.usedMargin.toString()
+            });
         }
       }
     }
@@ -508,14 +564,42 @@ class Exchange {
     const buyUser = this.users.get(buyOrder.userId);
     const sellUser = this.users.get(sellOrder.userId);
 
-    const buyMargin = this.marginCalculator.calculateInitialMargin(size, price, buyOrder.leverage);
-    const sellMargin = this.marginCalculator.calculateInitialMargin(size, price, sellOrder.leverage);
+    // Skip balance updates for liquidation engine
+    if (buyOrder.userId === 'liquidation_engine' || sellOrder.userId === 'liquidation_engine') {
+      this.log('DEBUG', 'Skipping balance update for liquidation engine trade');
+      return;
+    }
+
+    // Check if users exist
+    if (!buyUser) {
+      this.log('ERROR', `❌ Buy user not found: ${buyOrder.userId}`);
+      return;
+    }
+    if (!sellUser) {
+      this.log('ERROR', `❌ Sell user not found: ${sellOrder.userId}`);
+      return;
+    }
+
+    // NOTE: Margin was already reserved during order placement (placeOrder method)
+    // No need to deduct margin again here - that would be double deduction
+    // The used margin tracking is handled in the updatePosition method when positions are created/updated
     
-    buyUser.availableBalance = buyUser.availableBalance.minus(buyMargin);
-    sellUser.availableBalance = sellUser.availableBalance.minus(sellMargin);
+    this.log('DEBUG', `Trade executed - margin already handled during order placement`);
     
-    buyUser.usedMargin = buyUser.usedMargin.plus(buyMargin);
-    sellUser.usedMargin = sellUser.usedMargin.plus(sellMargin);
+    this.log('DEBUG', `Updated user balances for trade`, {
+      buyUser: {
+        id: buyUser.id,
+        availableBalance: buyUser.availableBalance.toString(),
+        usedMargin: buyUser.usedMargin.toString(),
+        totalBalance: buyUser.getTotalBalance().toString()
+      },
+      sellUser: {
+        id: sellUser.id,
+        availableBalance: sellUser.availableBalance.toString(),
+        usedMargin: sellUser.usedMargin.toString(),
+        totalBalance: sellUser.getTotalBalance().toString()
+      }
+    });
   }
 
   updateLeverage(data) {
@@ -623,6 +707,58 @@ class Exchange {
         liquidations.push(result);
         
         this.log('INFO', `🔥 LIQUIDATION COMPLETED for ${userId}`, result);
+        
+        // CRITICAL: Track ADL socialization requirements
+        if (result.adlSocializationRequired && transferredPosition) {
+          const socializationAmount = new Decimal(result.adlSocializationRequired);
+          this.adlSocializationAmounts.set(transferredPosition.id, socializationAmount);
+          this.log('INFO', `💰 ADL SOCIALIZATION REQUIRED for position ${transferredPosition.id}`, {
+            amount: socializationAmount.toString(),
+            originalUser: userId,
+            reason: 'Beyond-margin loss exceeds insurance fund'
+          });
+        }
+        
+        // Handle margin return if any - ISOLATED MARGIN LOGIC
+        const user = this.users.get(userId);
+        if (user) {
+          // In isolated margin, user should only lose their margin amount, never more
+          const marginAmount = position.initialMargin;
+          const remainingMargin = new Decimal(result.remainingBalance || 0);
+          
+          this.log('INFO', `🔍 ISOLATED MARGIN LIQUIDATION ACCOUNTING`, {
+            userId,
+            initialMargin: marginAmount.toString(),
+            remainingBalance: remainingMargin.toString(),
+            currentUsedMargin: user.usedMargin.toString(),
+            currentAvailableBalance: user.availableBalance.toString()
+          });
+          
+          if (remainingMargin.greaterThan(0)) {
+            // User has some margin left - return it
+            user.usedMargin = user.usedMargin.minus(marginAmount);
+            user.availableBalance = user.availableBalance.plus(remainingMargin);
+            
+            this.log('INFO', `💰 PARTIAL MARGIN RETURN to ${userId}`, {
+              marginReturned: remainingMargin.toString(),
+              marginLost: marginAmount.minus(remainingMargin).toString(),
+              newUsedMargin: user.usedMargin.toString(),
+              newAvailableBalance: user.availableBalance.toString()
+            });
+          } else {
+            // User lost entire margin (isolated margin max loss)
+            user.usedMargin = user.usedMargin.minus(marginAmount);
+            // Available balance stays the same - user only loses the margin that was already reserved
+            
+            this.log('INFO', `💸 MARGIN LOST in liquidation (isolated margin max loss)`, {
+              userId,
+              marginLost: marginAmount.toString(),
+              newUsedMargin: user.usedMargin.toString(),
+              availableBalance: user.availableBalance.toString(),
+              note: 'Available balance unchanged - margin was already reserved'
+            });
+          }
+        }
         
         // Remove position after liquidation (now it's transferred, not destroyed)
         this.log('DEBUG', `Removing position from user positions map (transferred to liquidation engine)`);
@@ -788,8 +924,16 @@ class Exchange {
         
         for (const lePosition of lePositions) {
           try {
-            // Plan the ADL trades first
-            const adlPlan = this.adlEngine.planADL(lePosition, this.positions, this.currentMarkPrice);
+            // Get the ADL socialization amount for this position
+            const socializationAmount = this.adlSocializationAmounts.get(lePosition.id) || 0;
+            
+            console.log(`💰 ADL SOCIALIZATION CHECK for position ${lePosition.id}:`, {
+              socializationRequired: socializationAmount?.toString() || '0',
+              originalUser: lePosition.originalUserId
+            });
+            
+            // Plan the ADL trades first with socialization amount
+            const adlPlan = this.adlEngine.planADL(lePosition, this.positions, this.users, this.currentMarkPrice, socializationAmount);
             
             if (!adlPlan.success) {
               this.log('ERROR', `❌ ADL PLANNING FAILED for position ${lePosition.id}`, adlPlan.error);
@@ -817,68 +961,93 @@ class Exchange {
                 size,
                 price
               });
-
-              // Process ADL trade directly with proper position tracking
-              const decPrice = new Decimal(price);
-              const decSize = new Decimal(size);
               
-              // Update the counterparty position (normal user position)
-              this.updatePosition(counterpartyUserId, counterpartySide, decSize, decPrice, 1);
+              // Create forced orders for both sides
+              const leOrder = {
+                id: `le_adl_${Date.now()}_${lePosition.id}`,
+                userId: 'liquidation_engine',
+                side: leSide,
+                originalSize: new Decimal(size),
+                remainingSize: new Decimal(size),
+                filledSize: new Decimal(0),
+                price: new Decimal(price),
+                avgFillPrice: new Decimal(0),
+                type: 'adl',
+                leverage: 1,
+                timestamp: Date.now(),
+                lastUpdateTime: Date.now(),
+                status: 'NEW',
+                timeInForce: 'IOC',
+                fills: [],
+                totalValue: new Decimal(0),
+                commission: new Decimal(0),
+                marginReserved: new Decimal(0),
+                isLiquidation: true,
+                lePositionId: lePosition.id
+              };
               
-              // Close the liquidation engine position (with specific position ID)
-              this.updatePosition('liquidation_engine', leSide, decSize, decPrice, 1, lePosition.id);
+              const counterpartyOrder = {
+                id: `adl_counterparty_${Date.now()}_${counterpartyUserId}`,
+                userId: counterpartyUserId,
+                side: counterpartySide,
+                originalSize: new Decimal(size),
+                remainingSize: new Decimal(size),
+                filledSize: new Decimal(0),
+                price: new Decimal(price),
+                avgFillPrice: new Decimal(0),
+                type: 'adl',
+                leverage: 1,
+                timestamp: Date.now(),
+                lastUpdateTime: Date.now(),
+                status: 'NEW',
+                timeInForce: 'IOC',
+                fills: [],
+                totalValue: new Decimal(0),
+                commission: new Decimal(0),
+                marginReserved: new Decimal(0),
+                isADL: true
+              };
               
-              // Log the trade outcome
+              // Execute the ADL trade
+              const match = {
+                buyOrder: leSide === 'buy' ? leOrder : counterpartyOrder,
+                sellOrder: leSide === 'sell' ? leOrder : counterpartyOrder,
+                price: new Decimal(price),
+                size: new Decimal(size)
+              };
+              
+              this.processTrade(match);
+              
               this.log('INFO', `✅ ADL TRADE EXECUTED`, {
                 lePositionId: lePosition.id,
-                originalUserId: lePosition.originalUserId,
                 counterparty: counterpartyUserId,
                 size: size.toString(),
-                price: price.toString(),
-                lePositionSide: lePosition.side,
-                closingSide: leSide
+                price: price.toString()
               });
             }
             
-            // Position should now be closed by updatePosition call above
-
-            results.push({ positionId: lePosition.id, method: 'adl', success: true });
-            executedCount++;
-            
-          } catch (error) {
-            this.log('ERROR', `ADL failed for position ${lePosition.id}:`, error);
-            results.push({ positionId: lePosition.id, method: 'adl', error: error.message, success: false });
-          }
-        }
-        break;
-
-      case 'force':
-        this.log('INFO', `🔨 FORCE CLOSING ${lePositions.length} liquidation positions`);
-        
-        for (const position of lePositions) {
-          try {
-            // Force close at current mark price
+            // Remove the position from liquidation engine
             const closureResult = this.positionLiquidationEngine.removePosition(
-              position.id,
-              'force_close',
-              this.currentMarkPrice
+              lePosition.id, 
+              'adl', 
+              new Decimal(adlPlan.trades[0].price)
             );
             
             results.push({
-              positionId: position.id,
-              method: 'force_close',
-              price: this.currentMarkPrice.toString(),
+              positionId: lePosition.id,
+              method: 'adl',
+              executed: lePosition.size.toString(),
+              price: adlPlan.trades[0].price.toString(),
               realizedPnL: closureResult?.realizedPnL?.toString() || '0',
               success: true
             });
             
             executedCount++;
-            this.log('INFO', `✅ FORCE CLOSE: Position ${position.id} closed at mark price`);
           } catch (error) {
-            this.log('ERROR', `Force close failed for position ${position.id}:`, error);
+            this.log('ERROR', `ADL execution failed for position ${lePosition.id}:`, error);
             results.push({
-              positionId: position.id,
-              method: 'force_close',
+              positionId: lePosition.id,
+              method: 'adl',
               error: error.message,
               success: false
             });
@@ -887,19 +1056,17 @@ class Exchange {
         break;
 
       default:
-        throw new Error(`Unknown liquidation method: ${method}`);
+        return {
+          success: false,
+          error: `Unknown liquidation method: ${method}`,
+          state: this.getState()
+        };
     }
 
-    this.logZeroSumCheck(`After ${method} liquidation step`);
-
-    this.log('INFO', `🎯 LIQUIDATION STEP COMPLETED: ${method.toUpperCase()}`);
-    this.log('INFO', `📊 Results: ${executedCount}/${lePositions.length} positions processed`);
-
+    this.log('INFO', `🎯 LIQUIDATION STEP COMPLETED: ${executedCount} positions processed`);
+    
     return {
       success: true,
-      method,
-      executedCount,
-      totalPositions: lePositions.length,
       results,
       state: this.getState()
     };
@@ -907,26 +1074,18 @@ class Exchange {
 
   validateRiskLimits(userId, side, size, price, leverage) {
     const decSize = new Decimal(size);
-    const decPrice = new Decimal(price || this.currentMarkPrice);
-    const decLeverage = new Decimal(leverage);
-
-    if (decSize.lessThan(this.riskLimits.minOrderSize)) {
-      throw new Error(`Order size too small. Minimum: ${this.riskLimits.minOrderSize} BTC`);
-    }
+    const decPrice = new Decimal(price);
     
     if (decSize.greaterThan(this.riskLimits.maxPositionSize)) {
-      throw new Error(`Order size too large. Maximum: ${this.riskLimits.maxPositionSize} BTC`);
-    }
-    
-    if (decLeverage.greaterThan(this.riskLimits.maxLeverage)) {
-      throw new Error(`Leverage too high. Maximum: ${this.riskLimits.maxLeverage}x`);
+      throw new Error(`Position size exceeds limit.`);
     }
     
     const positionValue = decSize.times(decPrice);
     if (positionValue.greaterThan(this.riskLimits.maxPositionValue)) {
-      throw new Error(`Position value too large. Maximum: $${this.riskLimits.maxPositionValue.toLocaleString()}`);
+      throw new Error(`Position value exceeds limit.`);
     }
-
+    
+    // Check total position size including existing positions
     const existingPosition = this.positions.get(userId);
     if (existingPosition && existingPosition.side === side) {
       const totalSize = existingPosition.size.plus(decSize);

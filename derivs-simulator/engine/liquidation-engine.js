@@ -30,13 +30,15 @@ class PositionLiquidationEngine {
             originalPositionId: originalPosition.id,
             side: originalPosition.side,
             size: new Decimal(originalPosition.size),
-            entryPrice: new Decimal(originalPosition.avgEntryPrice), // Keep original entry price
+            entryPrice: new Decimal(bankruptcyPrice), // CRITICAL FIX: Use bankruptcy price as entry price
             bankruptcyPrice: new Decimal(bankruptcyPrice), // Store bankruptcy price separately
             originalEntryPrice: new Decimal(originalPosition.avgEntryPrice), // For audit trail
             transferTime: Date.now(),
             status: 'pending', // pending, attempting_orderbook, orderbook_failed, adl_required, completed
             attempts: 0,
             lastAttemptTime: null
+            // NOTE: Deliberately NOT copying unrealizedPnL from original position
+            // We want fresh calculation based on bankruptcy price entry
         };
 
         this.positions.push(liquidationPosition);
@@ -90,16 +92,8 @@ class PositionLiquidationEngine {
         const currentPriceDec = currentPrice instanceof Decimal ? 
             currentPrice : new Decimal(currentPrice || 0);
         
-        // Calculate PnL consistently
-        if (typeof position.calculateUnrealizedPnL === 'function') {
-            return position.calculateUnrealizedPnL(currentPriceDec);
-        }
-        
-        if (position.unrealizedPnL) {
-            return new Decimal(position.unrealizedPnL);
-        }
-        
-        // Manual calculation as fallback
+        // For liquidation engine positions, ALWAYS calculate fresh PnL
+        // Don't trust any pre-existing unrealizedPnL fields from original positions
         const priceDiff = position.side === 'long' 
             ? currentPriceDec.minus(entryPrice)
             : entryPrice.minus(currentPriceDec);

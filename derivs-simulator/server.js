@@ -41,7 +41,15 @@ wss.on('connection', (ws) => {
         success: response.success !== false
       });
       
-      // Broadcast to all clients for real-time updates
+      // Send response to the specific client with requestId preserved
+      if (data.requestId) {
+        ws.send(JSON.stringify({
+          ...response,
+          requestId: data.requestId
+        }));
+      }
+      
+      // Broadcast to all clients for real-time updates (without requestId)
       const broadcastData = {
         type: 'update',
         ...response
@@ -59,7 +67,18 @@ wss.on('connection', (ws) => {
         stack: error.stack,
         rawMessage: message.toString()
       });
-      ws.send(JSON.stringify({ error: error.message }));
+      
+      try {
+        const data = JSON.parse(message);
+        const errorResponse = { error: error.message };
+        if (data && data.requestId) {
+          errorResponse.requestId = data.requestId;
+        }
+        ws.send(JSON.stringify(errorResponse));
+      } catch (parseError) {
+        // If we can't parse the message, send a generic error
+        ws.send(JSON.stringify({ error: error.message }));
+      }
     }
   });
 

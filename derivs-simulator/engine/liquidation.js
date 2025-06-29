@@ -285,31 +285,36 @@ class LiquidationEngine {
     console.log(`🚨 EXECUTING FALLBACK LIQUIDATION (Insurance Fund Mode)`);
     console.log(`   This is where the position might "disappear" - we need to track this carefully!`);
     
-    const decCurrentPrice = new Decimal(currentPrice);
-    const positionValue = position.size.times(decCurrentPrice);
+    // CRITICAL FIX: Use bankruptcy price instead of current market price
+    const bankruptcyPrice = liquidationResult.bankruptcyPrice;
+    const decBankruptcyPrice = new Decimal(bankruptcyPrice);
+    const positionValue = position.size.times(decBankruptcyPrice);
     const liquidationFee = positionValue.times(this.liquidationFeeRate);
     
     console.log(`💼 FALLBACK LIQUIDATION CALCULATION:`, {
       positionSide: position.side,
       positionSize: position.size.toString(),
       entryPrice: position.avgEntryPrice.toString(),
-      liquidationPrice: decCurrentPrice.toString(),
+      bankruptcyPrice: decBankruptcyPrice.toString(),
+      currentMarketPrice: currentPrice.toString(),
+      executionPrice: decBankruptcyPrice.toString(),
       positionValue: positionValue.toString(),
       liquidationFee: liquidationFee.toString()
     });
     
     let totalLoss;
     if (position.side === 'long') {
-      totalLoss = Decimal.max(0, position.avgEntryPrice.minus(decCurrentPrice).times(position.size));
+      totalLoss = Decimal.max(0, position.avgEntryPrice.minus(decBankruptcyPrice).times(position.size));
     } else {
-      totalLoss = Decimal.max(0, decCurrentPrice.minus(position.avgEntryPrice).times(position.size));
+      totalLoss = Decimal.max(0, decBankruptcyPrice.minus(position.avgEntryPrice).times(position.size));
     }
     
     console.log(`💸 CALCULATED LOSS: $${totalLoss.toString()}`);
     console.log(`⚠️  CRITICAL: Position of ${position.side} ${position.size.toString()} BTC will be REMOVED from the system`);
     console.log(`⚠️  CRITICAL: This breaks zero-sum invariant unless position is transferred to liquidation engine!`);
     
-    liquidationResult.method = 'mark_price';
+    liquidationResult.method = 'bankruptcy_price';
+    liquidationResult.executionPrice = decBankruptcyPrice;
     liquidationResult.totalExecuted = position.size;
     liquidationResult.remainingBalance = Decimal.max(0, position.initialMargin.minus(totalLoss).minus(liquidationFee));
     liquidationResult.liquidationFee = liquidationFee;
@@ -387,13 +392,12 @@ class LiquidationEngine {
         const shortfall = actualLoss.minus(decInitialMargin);
         console.log(`💔 SHORTFALL DETECTED: $${shortfall.toString()}`);
         console.log(`⚠️  This shortfall must be covered by insurance fund or ADL`);
-        console.log(`⚠️  THE LIQUIDATED POSITION STILL EXISTS SOMEWHERE - where does it go?`);
         
         if (this.insuranceFund.gte(shortfall)) {
           console.log(`✅ INSURANCE FUND CAN COVER SHORTFALL`);
           console.log(`   Fund balance: $${this.insuranceFund.toString()}`);
           console.log(`   Shortfall: $${shortfall.toString()}`);
-          console.log(`   🚨 BUT WAIT: What happens to the liquidated position itself?`);
+          
           // Insurance fund can cover the entire loss
           const fundBeforePayout = this.insuranceFund;
           this.insuranceFund = this.insuranceFund.minus(shortfall);
@@ -404,9 +408,6 @@ class LiquidationEngine {
           console.log(`🔥 BANKRUPTCY PAYOUT: -$${shortfall.toLocaleString()}`);
           console.log(`🔥 AFTER: $${this.insuranceFund.toLocaleString()}`);
           console.log(`🔥 REASON: User ${userId} bankrupt - covering shortfall`);
-          console.log(`🚨 CRITICAL QUESTION: What happened to the ${side} ${totalExecuted.toString()} BTC position?`);
-          console.log(`🚨 If it just disappeared, we broke long = short invariant!`);
-          console.log('🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥');
           
           this.recordInsuranceFundChange({
             type: 'bankruptcy_payout',
@@ -430,6 +431,7 @@ class LiquidationEngine {
           const fundBeforeDraining = this.insuranceFund;
           this.insuranceFund = new Decimal(0);
           liquidationResult.insuranceFundLoss = insurancePayout;
+          liquidationResult.adlSocializationRequired = adlAmount;
           
           console.log('💀💀💀 INSURANCE FUND DRAINED 💀💀💀');
           console.log(`💀 BEFORE: $${fundBeforeDraining.toLocaleString()}`);
@@ -445,20 +447,11 @@ class LiquidationEngine {
             balance: this.insuranceFund,
             description: `Insurance fund drained for ${userId}. Payout: $${insurancePayout.toString()}, ADL required for $${adlAmount.toString()}`
           });
-          
-          if (this.adlEngine) {
-            console.log(`🔄 EXECUTING ADL for shortfall of $${adlAmount.toString()}`);
-            console.log(`⚠️  ADL should transfer the liquidated position to ADL participants`);
-            const adlResult = this.adlEngine.executeADL(allPositions, adlAmount, bankruptPosition);
-            liquidationResult.adlResult = adlResult;
-          } else {
-            console.error("❌ ADL Engine not available! System is at risk.");
-            console.error("🚨 This means positions will disappear and break zero-sum invariant!");
-            // In a real system, this would be a critical alert
-          }
         }
       } else {
         console.log(`✅ User margin covers all losses - no insurance fund payout needed`);
+        // Return remaining margin to user's available balance
+        liquidationResult.marginToReturn = remainingBalance;
       }
     } else {
       console.log(`✅ User has remaining balance - no bankruptcy situation`);
@@ -467,25 +460,6 @@ class LiquidationEngine {
     // FINAL STEP: Record the liquidation event
     console.log(`📝 RECORDING LIQUIDATION EVENT`);
     this.recordLiquidationEvent(liquidationResult);
-    
-    // CRITICAL: Check what happened to zero-sum invariant
-    console.log(`🔍 POST-LIQUIDATION ZERO-SUM ANALYSIS:`);
-    const postLiquidationLong = Array.from(allPositions.values())
-      .filter(p => p.side === 'long')
-      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
-    const postLiquidationShort = Array.from(allPositions.values())
-      .filter(p => p.side === 'short')
-      .reduce((sum, p) => sum.plus(p.size), new Decimal(0));
-    
-    console.log(`   Total long after liquidation: ${postLiquidationLong.toString()}`);
-    console.log(`   Total short after liquidation: ${postLiquidationShort.toString()}`);
-    console.log(`   Difference: ${postLiquidationLong.minus(postLiquidationShort).toString()}`);
-    console.log(`   Liquidated position (${side} ${totalExecuted.toString()}) was REMOVED from system`);
-    
-    if (!postLiquidationLong.equals(postLiquidationShort)) {
-      console.log(`🚨🚨🚨 ZERO-SUM INVARIANT VIOLATED! 🚨🚨🚨`);
-      console.log(`   This confirms the position disappeared instead of being transferred!`);
-    }
     
     // FINAL INSURANCE FUND STATUS SUMMARY
     console.log('🏛️'.repeat(25));
@@ -503,6 +477,8 @@ class LiquidationEngine {
     console.log('🏛️'.repeat(25));
     
     console.log(`💰 INSURANCE FUND UPDATE COMPLETED`);
+    
+    return liquidationResult;
   }
 
   // Record insurance fund balance changes

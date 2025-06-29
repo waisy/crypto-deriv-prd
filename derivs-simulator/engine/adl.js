@@ -3,6 +3,11 @@ const { Decimal } = require('decimal.js');
 class ADLEngine {
   constructor() {
     this.adlTriggerThreshold = 50000; // Trigger ADL when insurance fund below $50k
+    this.lastSocializationPrice = null;
+  }
+
+  getLastSocializationPrice() {
+    return this.lastSocializationPrice;
   }
 
   // Calculate ADL score for position ranking
@@ -160,7 +165,7 @@ class ADLEngine {
   }
 
   // Plan ADL deleveraging without executing
-  planADL(lePosition, allUserPositions, markPrice) {
+  planADL(lePosition, allUserPositions, users, markPrice, requiredSocializationAmount = 0) {
     try {
       console.log('🎯 Planning ADL execution:', {
         lePosition: {
@@ -169,14 +174,16 @@ class ADLEngine {
           size: lePosition?.size?.toString()
         },
         totalPositions: allUserPositions?.size,
-        markPrice: markPrice?.toString()
+        markPrice: markPrice?.toString(),
+        requiredSocializationAmount: requiredSocializationAmount?.toString()
       });
 
-      if (!lePosition || !allUserPositions || !markPrice) {
+      if (!lePosition || !allUserPositions || !users || !markPrice) {
         const error = 'Invalid arguments for planning ADL';
         console.error(`❌ ADL ERROR: ${error}`, { 
           hasLePosition: !!lePosition,
           hasPositions: !!allUserPositions,
+          hasUsers: !!users,
           hasMarkPrice: !!markPrice
         });
         return {
@@ -257,7 +264,8 @@ class ADLEngine {
       // Rank counterparties by ADL score
       try {
         profitableCounterparties.forEach(p => {
-          const userBalance = p.userBalance || new Decimal(0);
+          const user = users.get(p.userId);
+          const userBalance = user ? user.availableBalance : new Decimal(0);
           p.adlScore = this.calculateADLScore(p, userBalance, markPrice);
           console.log(`📊 ADL Score for ${p.userId}:`, {
             score: p.adlScore,
@@ -277,9 +285,29 @@ class ADLEngine {
 
       profitableCounterparties.sort((a, b) => (b.adlScore || 0) - (a.adlScore || 0));
 
+      // 🚨 CRITICAL FIX: Calculate ADL price that socializes losses
+      let adlPrice = new Decimal(markPrice);
+      
+      if (requiredSocializationAmount && new Decimal(requiredSocializationAmount).greaterThan(0)) {
+        adlPrice = this.calculateADLSocializationPrice(
+          lePosition, 
+          profitableCounterparties, 
+          markPrice, 
+          requiredSocializationAmount
+        );
+        
+        console.log('💰 ADL LOSS SOCIALIZATION ACTIVATED:', {
+          markPrice: markPrice.toString(),
+          adlPrice: adlPrice.toString(),
+          socializationAmount: requiredSocializationAmount.toString(),
+          priceAdjustment: adlPrice.minus(markPrice).toString()
+        });
+      } else {
+        console.log('📊 Standard ADL (no loss socialization required)');
+      }
+
       const adlTrades = [];
       let remainingSizeToClose = new Decimal(lePosition.size);
-      const closePrice = new Decimal(markPrice);
 
       for (const counterparty of profitableCounterparties) {
         if (remainingSizeToClose.isZero() || remainingSizeToClose.isNegative()) break;
@@ -297,14 +325,14 @@ class ADLEngine {
           adlTrades.push({
             counterpartyUserId: counterparty.userId,
             size: tradeSize.toString(),
-            price: closePrice.toString()
+            price: adlPrice.toString()
           });
           
           remainingSizeToClose = remainingSizeToClose.minus(tradeSize);
           console.log(`📝 ADL Trade planned:`, {
             counterparty: counterparty.userId,
             size: tradeSize.toString(),
-            price: closePrice.toString(),
+            price: adlPrice.toString(),
             remaining: remainingSizeToClose.toString()
           });
         } catch (tradeError) {
@@ -332,13 +360,17 @@ class ADLEngine {
       console.log('✅ ADL plan completed successfully:', {
         trades: adlTrades.length,
         totalSize: lePosition.size.toString(),
-        price: closePrice.toString()
+        price: adlPrice.toString(),
+        socialization: requiredSocializationAmount ? `$${requiredSocializationAmount}` : 'none'
       });
 
       return {
         success: true,
         lePositionId: lePosition.id,
-        trades: adlTrades
+        trades: adlTrades,
+        socializationAmount: requiredSocializationAmount || 0,
+        adlPrice: adlPrice.toString(),
+        markPrice: markPrice.toString()
       };
     } catch (error) {
       console.error('❌ Catastrophic ADL planning error:', error);
@@ -347,6 +379,58 @@ class ADLEngine {
         error: error.message || 'Unknown ADL planning error',
         trades: []
       };
+    }
+  }
+
+  // NEW: Calculate ADL price that socializes beyond-margin losses
+  calculateADLSocializationPrice(lePosition, profitableCounterparties, markPrice, socializationAmount) {
+    try {
+      console.log('📊 Calculating ADL socialization price:', {
+        lePositionSize: lePosition.size.toString(),
+        counterparties: profitableCounterparties.length,
+        markPrice: markPrice.toString(),
+        socializationAmount: socializationAmount.toString()
+      });
+
+      const decMarkPrice = new Decimal(markPrice);
+      const decSocializationAmount = new Decimal(socializationAmount);
+      
+      // Calculate total profitable counterparty size
+      const totalCounterpartySize = profitableCounterparties.reduce((sum, pos) => {
+        return sum.plus(pos.size);
+      }, new Decimal(0));
+
+      if (totalCounterpartySize.isZero()) {
+        throw new Error('No counterparty size available for ADL');
+      }
+
+      // Calculate price adjustment to socialize losses
+      let priceAdjustment;
+      if (lePosition.side === 'long') {
+        // Long position being liquidated, counterparties are short
+        // Need to INCREASE price to reduce counterparty profits
+        priceAdjustment = decSocializationAmount.dividedBy(totalCounterpartySize);
+        this.lastSocializationPrice = decMarkPrice.plus(priceAdjustment);
+      } else {
+        // Short position being liquidated, counterparties are long
+        // Need to DECREASE price to reduce counterparty profits
+        priceAdjustment = decSocializationAmount.dividedBy(totalCounterpartySize);
+        this.lastSocializationPrice = decMarkPrice.minus(priceAdjustment);
+      }
+
+      console.log('💰 ADL SOCIALIZATION PRICE CALCULATED:', {
+        markPrice: decMarkPrice.toString(),
+        socializationAmount: decSocializationAmount.toString(),
+        totalCounterpartySize: totalCounterpartySize.toString(),
+        priceAdjustment: priceAdjustment.toString(),
+        socializationPrice: this.lastSocializationPrice.toString(),
+        lePositionSide: lePosition.side
+      });
+
+      return this.lastSocializationPrice;
+    } catch (error) {
+      console.error('❌ Error calculating ADL socialization price:', error);
+      throw error;
     }
   }
 
@@ -404,8 +488,8 @@ class ADLEngine {
       if (pnl.greaterThan(0)) { // Only profitable positions
         const user = users.get(position.userId);
         if (user) {
-          const userBalance = new Decimal(user.availableBalance);
-          position.adlScore = this.calculateADLScore(position, userBalance.toNumber(), currentPrice);
+          const userBalance = user.availableBalance;
+          position.adlScore = this.calculateADLScore(position, userBalance, currentPrice);
         }
       }
     });
