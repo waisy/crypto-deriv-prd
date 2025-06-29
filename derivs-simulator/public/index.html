@@ -531,7 +531,9 @@
 
     <script src="https://cdn.jsdelivr.net/npm/decimal.js@10.3.1/decimal.min.js"></script>
     <script>
-        const ws = new WebSocket(`ws://${window.location.host}`);
+        // Use secure WebSocket (wss://) if page is loaded over HTTPS, otherwise use ws://
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
         let currentUser = 'bob';
         let state = {};
 
