@@ -1,6 +1,7 @@
 const { Decimal } = require('decimal.js');
 const { OrderBook } = require('./orderbook');
 const { Position } = require('./position');
+const { Trade } = require('./trade');
 const { User } = require('./user');
 const { MatchingEngine } = require('./matching');
 const { MarginCalculator } = require('./margin');
@@ -304,131 +305,96 @@ class Exchange {
       size: size.toString()
     });
     
-    const trade = {
-      id: Date.now().toString(),
-      buyUserId: buyOrder.userId,
-      sellUserId: sellOrder.userId,
-      price,
-      size,
-      timestamp: Date.now()
-    };
-    
-    this.trades.push(trade);
-
     const decPrice = new Decimal(price);
     const decSize = new Decimal(size);
 
-    this.log('DEBUG', `Updating positions from trade`);
-    
     // For ADL trades, use the socialization price
     const isADLTrade = buyOrder.userId === 'liquidation_engine' || sellOrder.userId === 'liquidation_engine';
     const tradePrice = isADLTrade ? this.adlEngine.getLastSocializationPrice() || decPrice : decPrice;
     
-    this.updatePosition(buyOrder.userId, 'long', decSize, tradePrice, buyOrder.leverage);
-    this.updatePosition(sellOrder.userId, 'short', decSize, tradePrice, sellOrder.leverage);
+    // Create Trade objects for both sides
+    const buyTrade = new Trade(buyOrder.userId, 'buy', size, tradePrice, {
+      orderId: buyOrder.id,
+      counterparty: sellOrder.userId,
+      tradeType: isADLTrade ? 'adl' : 'normal',
+      leverage: buyOrder.leverage,
+      markPrice: this.currentMarkPrice
+    });
+    
+    const sellTrade = new Trade(sellOrder.userId, 'sell', size, tradePrice, {
+      orderId: sellOrder.id,
+      counterparty: buyOrder.userId,
+      tradeType: isADLTrade ? 'adl' : 'normal',
+      leverage: sellOrder.leverage,
+      markPrice: this.currentMarkPrice
+    });
+
+    // Store trade record for history (backward compatibility)
+    const trade = {
+      id: buyTrade.id, // Use buy trade ID
+      buyUserId: buyOrder.userId,
+      sellUserId: sellOrder.userId,
+      price: tradePrice,
+      size: decSize,
+      timestamp: Date.now()
+    };
+    this.trades.push(trade);
+
+    this.log('DEBUG', `Updating positions from trade`);
+    
+    this.addTradeToPosition(buyTrade);
+    this.addTradeToPosition(sellTrade);
 
     this.updateUserBalances(buyOrder, sellOrder, tradePrice, decSize);
     
     this.logZeroSumCheck('After trade processing');
   }
 
-  updatePosition(userId, side, size, price, leverage, lePositionId = null) {
-    // Special case: liquidation engine positions should only be closed, never opened
+  addTradeToPosition(trade) {
+    const userId = trade.userId;
+    
+    // Special handling for liquidation engine positions
     if (userId === 'liquidation_engine') {
-      // Find the specific liquidation engine position to close
-      const lePositions = this.positionLiquidationEngine.positions;
-      let targetPosition = null;
-      
-      if (lePositionId) {
-        // Use specific position ID if provided
-        targetPosition = lePositions.find(p => p.id === lePositionId);
-      } else {
-        // Fallback: find first position with opposite side (for closing)
-        targetPosition = lePositions.find(p => p.side !== side);
-      }
-      
-      if (!targetPosition) {
-        this.log('ERROR', `❌ Liquidation engine position not found for closing`, {
-          lePositionId,
-          requestedSide: side,
-          availablePositions: lePositions.map(p => ({id: p.id, side: p.side, size: p.size.toString()}))
-        });
-        return;
-      }
-      
-      // Only allow trades that reduce/close the position
-      if (targetPosition.side === side) {
-        this.log('ERROR', `❌ Invalid liquidation engine trade - would increase position`, {
-          positionSide: targetPosition.side,
-          tradeSide: side
-        });
-        return;
-      }
-      
-      this.log('INFO', `🔄 CLOSING LIQUIDATION ENGINE POSITION`, {
-        positionId: targetPosition.id,
-        originalUserId: targetPosition.originalUserId,
-        side: targetPosition.side,
-        size: targetPosition.size.toString(),
-        closingSize: size.toString()
-      });
-      
-      // Use the liquidation engine's removePosition method to properly close
-      const closureResult = this.positionLiquidationEngine.removePosition(
-        targetPosition.id, 
-        'adl', 
-        new Decimal(price)
-      );
-      
-      if (closureResult) {
-        this.log('INFO', `✅ Liquidation engine position closed successfully`, {
-          positionId: targetPosition.id,
-          realizedPnL: closureResult.realizedPnL.toString()
-        });
-      }
-      
+      this.handleLiquidationEnginePositionTrade(trade);
       return;
     }
 
-    // Regular user position update logic
+    // Regular user position handling
     const positionKey = userId;
     let position = this.positions.get(positionKey);
-    let realizedPnL = new Decimal(0);
     
     // Check if user exists
     const user = this.users.get(userId);
     if (!user) {
-      this.log('ERROR', `❌ User not found for position update`, {
+      this.log('ERROR', `❌ User not found for trade`, {
         userId,
         availableUsers: Array.from(this.users.keys())
       });
       return;
     }
     
-    this.log('DEBUG', `📈 UPDATING POSITION`, {
+    this.log('DEBUG', `📈 ADDING TRADE TO POSITION`, {
       userId,
-      side,
-      size: size.toString(),
-      price: price.toString(),
-      leverage,
-      hasExistingPosition: !!position,
-      existingPositionSide: position?.side,
-      existingPositionSize: position?.size?.toString()
+      side: trade.side,
+      size: trade.size.toString(),
+      price: trade.price.toString(),
+      hasExistingPosition: !!position
     });
     
     if (!position) {
       this.log('INFO', `🆕 CREATING NEW POSITION`, {
         userId,
-        side,
-        size: size.toString(),
-        price: price.toString(),
-        leverage
+        side: trade.side,
+        size: trade.size.toString(),
+        price: trade.price.toString(),
+        leverage: trade.leverage
       });
-      position = new Position(userId, side, size, price, leverage);
+      
+      position = new Position(userId, trade.leverage, trade);
       this.positions.set(positionKey, position);
       
-      // Calculate and store the margin that was reserved during order placement
-      const reservedMargin = this.marginCalculator.calculateInitialMargin(size, price, leverage);
+      // Update user margin for new position
+      const reservedMargin = position.initialMargin;
       user.usedMargin = user.usedMargin.plus(reservedMargin);
       
       this.log('DEBUG', `Position created successfully`, {
@@ -438,117 +404,104 @@ class Exchange {
         userUsedMargin: user.usedMargin.toString()
       });
     } else {
-      if (position.side === side) {
-        this.log('INFO', `⬆️ ADDING TO EXISTING POSITION`, {
+      this.log('INFO', `📊 ADDING TRADE TO EXISTING POSITION`, {
+        userId,
+        tradeSide: trade.side,
+        tradeSize: trade.size.toString(),
+        currentPositionSide: position.side,
+        currentPositionSize: position.size.toString()
+      });
+      
+      // Calculate margin impact before adding trade
+      const oldMargin = position.initialMargin;
+      
+      // Add the trade to position
+      position.addTrade(trade);
+      
+      // Update user margin based on new position size
+      const newMargin = position.initialMargin;
+      const marginDelta = newMargin.minus(oldMargin);
+      
+      user.usedMargin = user.usedMargin.plus(marginDelta);
+      
+      this.log('DEBUG', `Trade added to position`, {
+        newPositionSize: position.size.toString(),
+        newPositionSide: position.side,
+        marginDelta: marginDelta.toString(),
+        userUsedMargin: user.usedMargin.toString()
+      });
+      
+      // If position is closed (size = 0), remove it
+      if (position.size.isZero()) {
+        this.log('INFO', `✅ POSITION CLOSED`, {
           userId,
-          side,
-          addingSize: size.toString(),
-          currentSize: position.size.toString(),
-          newTotalSize: position.size.plus(size).toString()
+          finalMargin: newMargin.toString()
         });
-        
-        // Calculate additional margin needed for the new size
-        const additionalMargin = this.marginCalculator.calculateInitialMargin(size, price, leverage);
-        position.addSize(size, price);
-        
-        // Update usedMargin for the additional size
-        user.usedMargin = user.usedMargin.plus(additionalMargin);
-        
-        this.log('DEBUG', `Added margin for additional position size`, {
-          additionalSize: size.toString(),
-          additionalMargin: additionalMargin.toString(),
-          userUsedMargin: user.usedMargin.toString()
-        });
-      } else {
-        this.log('INFO', `🔄 OPPOSITE SIDE TRADE - REDUCING/FLIPPING POSITION`, {
-          userId,
-          existingSide: position.side,
-          existingSize: position.size.toString(),
-          newSide: side,
-          newSize: size.toString()
-        });
-        
-        const marginToRelease = position.initialMargin.times(size.dividedBy(position.size));
-        
-        if (size.lessThan(position.size)) {
-          this.log('DEBUG', `Partially closing position`);
-          realizedPnL = position.reduceSize(size, price);
-          
-          // Release proportional margin
-          user.usedMargin = user.usedMargin.minus(marginToRelease);
-          user.availableBalance = user.availableBalance.plus(marginToRelease).plus(realizedPnL);
-          
-          this.log('INFO', `💰 POSITION PARTIALLY CLOSED`, {
-            userId,
-            reducedBy: size.toString(),
-            remainingSize: position.size.toString(),
-            realizedPnL: realizedPnL.toString(),
-            marginReleased: marginToRelease.toString()
-          });
-        } else if (size.equals(position.size)) {
-          this.log('DEBUG', `Fully closing position`);
-          realizedPnL = position.closePosition(price);
-          
-          // Release all margin
-          user.usedMargin = user.usedMargin.minus(position.initialMargin);
-          user.availableBalance = user.availableBalance.plus(position.initialMargin).plus(realizedPnL);
-          
-          this.positions.delete(positionKey);
-          
-          this.log('INFO', `✅ POSITION FULLY CLOSED`, {
-            userId,
-            closedSize: size.toString(),
-            realizedPnL: realizedPnL.toString(),
-            marginReleased: position.initialMargin.toString()
-          });
-        } else {
-          this.log('DEBUG', `Closing position and opening new opposite position`);
-          const excessSize = size.minus(position.size);
-          realizedPnL = position.closePosition(price);
-          
-          // Release all margin from old position
-          user.usedMargin = user.usedMargin.minus(position.initialMargin);
-          user.availableBalance = user.availableBalance.plus(position.initialMargin).plus(realizedPnL);
-          
-          this.positions.delete(positionKey);
-          position = new Position(userId, side, excessSize, price, leverage);
-          this.positions.set(positionKey, position);
-          
-          // Calculate and update usedMargin for the new position
-          const newPositionMargin = this.marginCalculator.calculateInitialMargin(excessSize, price, leverage);
-          user.usedMargin = user.usedMargin.plus(newPositionMargin);
-          
-                      this.log('INFO', `🔄 POSITION FLIPPED`, {
-              userId,
-              oldSide: side === 'long' ? 'short' : 'long',
-              newSide: side,
-              excessSize: excessSize.toString(),
-              realizedPnL: realizedPnL.toString(),
-              newPositionMargin: newPositionMargin.toString(),
-              userUsedMargin: user.usedMargin.toString()
-            });
-        }
+        this.positions.delete(positionKey);
       }
     }
+  }
 
-    if (this.positions.has(positionKey)) {
-      position = this.positions.get(positionKey);
-      position.updatePnL(this.currentMarkPrice);
-      
-      const marginReqs = this.marginCalculator.calculateMarginRequirements(position, this.currentMarkPrice);
-      position.initialMargin = marginReqs.initial;
-      position.maintenanceMargin = marginReqs.maintenance;
-      
-      position.liquidationPrice = this.marginCalculator.calculateLiquidationPrice(position);
-      
-      this.log('DEBUG', `Position updated with new margin requirements`, {
-        userId,
-        positionSize: position.size.toString(),
-        positionSide: position.side,
-        unrealizedPnL: position.unrealizedPnL.toString(),
-        liquidationPrice: position.liquidationPrice.toString()
+  handleLiquidationEnginePositionTrade(trade) {
+    // Handle liquidation engine position trades through the liquidation engine
+    this.log('INFO', `🔄 HANDLING LIQUIDATION ENGINE TRADE`, {
+      side: trade.side,
+      size: trade.size.toString(),
+      price: trade.price.toString()
+    });
+    
+    // Find matching position to close in liquidation engine
+    const lePositions = this.positionLiquidationEngine.positions;
+    let targetPosition = null;
+    
+    // Find first position with opposite side (for closing)
+    targetPosition = lePositions.find(p => p.side !== trade.side);
+    
+    if (!targetPosition) {
+      this.log('ERROR', `❌ Liquidation engine position not found for closing`, {
+        tradeSide: trade.side,
+        availablePositions: lePositions.map(p => ({id: p.id, side: p.side, size: p.size.toString()}))
+      });
+      return;
+    }
+    
+    this.log('INFO', `🔄 CLOSING LIQUIDATION ENGINE POSITION`, {
+      positionId: targetPosition.id,
+      originalUserId: targetPosition.originalUserId,
+      side: targetPosition.side,
+      size: targetPosition.size.toString(),
+      closingSize: trade.size.toString()
+    });
+    
+    // Use the liquidation engine's removePosition method to properly close
+    const closureResult = this.positionLiquidationEngine.removePosition(
+      targetPosition.id, 
+      'adl', 
+      trade.price
+    );
+    
+    if (closureResult) {
+      this.log('INFO', `✅ Liquidation engine position closed successfully`, {
+        positionId: targetPosition.id,
+        realizedPnL: closureResult.realizedPnL.toString()
       });
     }
+  }
+
+  // Legacy method - kept for backward compatibility but simplified
+  updatePosition(userId, side, size, price, leverage, lePositionId = null) {
+    this.log('DEBUG', `🔄 Legacy updatePosition called - converting to trade-based approach`, {
+      userId, side, size: size.toString(), price: price.toString(), leverage
+    });
+    
+    // Convert to Trade object and use new system
+    const tradeSide = side === 'long' ? 'buy' : 'sell';
+    const trade = new Trade(userId, tradeSide, size, price, {
+      tradeType: 'legacy_conversion',
+      leverage: leverage || 1
+    });
+    
+    this.addTradeToPosition(trade);
   }
 
   updateUserBalances(buyOrder, sellOrder, price, size) {

@@ -7,6 +7,7 @@ const originalConsoleError = console.error;
 // Import the actual class (not Jest-style describe/test)
 const { LiquidationEngine } = require('./engine/liquidation');
 const { Position } = require('./engine/position');
+const { Trade } = require('./engine/trade');
 
 // Mock dependencies
 class MockMatchingEngine {
@@ -107,34 +108,37 @@ function createMockPosition(overrides = {}) {
     }
   });
   
-  // Create real Position object
-  const position = new Position(
-    config.userId,
-    config.side,
-    config.size,
-    config.avgEntryPrice,
-    config.leverage
-  );
+  // Create the initial trade for the position
+  const tradeSide = config.side === 'long' ? 'buy' : 'sell';
+  const initialTrade = new Trade(config.userId, tradeSide, config.size, config.avgEntryPrice, {
+    tradeType: 'test_position_creation',
+    leverage: config.leverage
+  });
   
-  // Calculate initial margin based on position value and leverage (like the mock objects did)
-  const positionValue = new Decimal(config.size).times(new Decimal(config.avgEntryPrice));
-  position.initialMargin = positionValue.dividedBy(config.leverage);
+  // Create trade-based Position object
+  const position = new Position(config.userId, config.leverage, initialTrade);
   
-  // Add any additional properties that tests might expect
+  // Add any additional properties that tests might expect for backward compatibility
   if (overrides.liquidationPrice) {
-    position.liquidationPrice = new Decimal(overrides.liquidationPrice);
-  } else {
-    position.liquidationPrice = new Decimal(40725); // Default test value
+    // Override the calculated liquidation price for test consistency
+    Object.defineProperty(position, 'liquidationPrice', {
+      get: () => new Decimal(overrides.liquidationPrice),
+      configurable: true
+    });
   }
   
-  // Handle unrealizedPnL override (some tests set this directly)
-  if (overrides.unrealizedPnL) {
-    position.unrealizedPnL = new Decimal(overrides.unrealizedPnL);
+  // Handle unrealizedPnL override (for tests that set this directly)
+  if (overrides.unrealizedPnL !== undefined) {
+    // Override the calculateUnrealizedPnL method for test consistency
+    position.calculateUnrealizedPnL = () => new Decimal(overrides.unrealizedPnL);
   }
   
   // Override initialMargin if explicitly provided
-  if (overrides.initialMargin) {
-    position.initialMargin = new Decimal(overrides.initialMargin);
+  if (overrides.initialMargin !== undefined) {
+    Object.defineProperty(position, 'initialMargin', {
+      get: () => new Decimal(overrides.initialMargin),
+      configurable: true
+    });
   }
   
   return position;
