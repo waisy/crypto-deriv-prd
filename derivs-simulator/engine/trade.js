@@ -9,10 +9,10 @@ class Trade {
     if (!['buy', 'sell'].includes(side)) {
       throw new Error('Trade side must be "buy" or "sell"');
     }
-    if (!size || Decimal.isDecimal(size) ? size.lte(0) : size <= 0) {
+    if (!size || (Decimal.isDecimal(size) ? size.lte(0) : size <= 0)) {
       throw new Error('Trade size must be positive');
     }
-    if (!price || Decimal.isDecimal(price) ? price.lte(0) : price <= 0) {
+    if (!price || (Decimal.isDecimal(price) ? price.lte(0) : price <= 0)) {
       throw new Error('Trade price must be positive');
     }
 

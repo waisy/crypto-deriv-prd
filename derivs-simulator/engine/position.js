@@ -3,6 +3,10 @@ const { Trade } = require('./trade');
 
 class Position {
   constructor(userId, leverage, initialTrade = null) {
+    if (!leverage || leverage <= 0) {
+      throw new Error('Leverage must be positive');
+    }
+    
     this.userId = userId;
     this.leverage = leverage;
     this.trades = [];
