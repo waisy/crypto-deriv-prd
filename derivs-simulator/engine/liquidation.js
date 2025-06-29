@@ -65,19 +65,7 @@ class LiquidationEngine {
   }
 
   shouldLiquidate(position, currentPrice) {
-    // Use MarginCalculator for consistent logic
-    if (this.marginCalculator) {
-      return this.marginCalculator.shouldLiquidate(position, currentPrice);
-    }
-    
-    // Fallback calculation if marginCalculator not available
-    const liquidationPrice = this.calculateLiquidationPrice(position);
-    
-    if (position.side === 'long') {
-      return currentPrice <= liquidationPrice;
-    } else {
-      return currentPrice >= liquidationPrice;
-    }
+    return this.marginCalculator.shouldLiquidate(position, currentPrice);
   }
 
   // DEPRECATED: Use MarginCalculator.calculateLiquidationPrice instead
