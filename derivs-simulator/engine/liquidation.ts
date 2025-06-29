@@ -118,6 +118,39 @@ export class LiquidationEngine {
 
   updateInsuranceFund(liquidationResult: any, allPositions: Map<string, Position>): void {
     this.insuranceFund = this.insuranceFund.plus(liquidationResult.liquidationFee);
+    
+    // Store liquidation in history for insurance fund tracking
+    this.liquidationHistory.push({
+      ...liquidationResult,
+      liquidationFee: liquidationResult.liquidationFee?.toString() || '0',
+      insuranceFundLoss: liquidationResult.insuranceFundLoss?.toString() || '0',
+      size: liquidationResult.size?.toString() || '0',
+      entryPrice: liquidationResult.entryPrice?.toString() || '0',
+      executionPrice: liquidationResult.executionPrice?.toString() || '0',
+      bankruptcyPrice: liquidationResult.bankruptcyPrice?.toString() || '0',
+      remainingBalance: liquidationResult.remainingBalance?.toString() || '0'
+    });
+    
+    // Also add to insurance fund history for balance tracking
+    this.insuranceFundHistory.push({
+      timestamp: liquidationResult.timestamp || Date.now(),
+      type: 'liquidation_fee',
+      amount: liquidationResult.liquidationFee?.toString() || '0',
+      balance: this.insuranceFund.toString(),
+      description: `Liquidation fee from ${liquidationResult.userId} (${liquidationResult.method})`
+    });
+    
+    // If there was an insurance fund loss, record that too
+    if (liquidationResult.insuranceFundLoss && new Decimal(liquidationResult.insuranceFundLoss).greaterThan(0)) {
+      this.insuranceFund = this.insuranceFund.minus(liquidationResult.insuranceFundLoss);
+      this.insuranceFundHistory.push({
+        timestamp: liquidationResult.timestamp || Date.now(),
+        type: 'bankruptcy_payout',
+        amount: `-${liquidationResult.insuranceFundLoss?.toString() || '0'}`,
+        balance: this.insuranceFund.toString(),
+        description: `Bankruptcy payout for ${liquidationResult.userId}`
+      });
+    }
   }
 
   calculateBankruptcyPrice(position: Position): Decimal {
@@ -152,6 +185,16 @@ export class LiquidationEngine {
   manualAdjustment(amount: any, description?: string): any {
     const decAmount = new Decimal(amount);
     this.insuranceFund = this.insuranceFund.plus(decAmount);
+    
+    // Record in insurance fund history
+    this.insuranceFundHistory.push({
+      timestamp: Date.now(),
+      type: decAmount.greaterThan(0) ? 'manual_deposit' : 'manual_withdrawal',
+      amount: decAmount.toString(),
+      balance: this.insuranceFund.toString(),
+      description: description || (decAmount.greaterThan(0) ? 'Manual deposit' : 'Manual withdrawal')
+    });
+    
     return { success: true, newBalance: this.insuranceFund.toString() };
   }
 
@@ -167,10 +210,52 @@ export class LiquidationEngine {
   }
 
   getInsuranceFundSummary(): any {
+    const currentBalance = this.insuranceFund;
+    const initialBalance = new Decimal(1000000); // Starting balance
+    
+    // Calculate totals from liquidation history
+    let totalLiquidations = this.liquidationHistory.length;
+    let totalFeesCollected = new Decimal(0);
+    let totalPayouts = new Decimal(0);
+    const methodBreakdown: Record<string, number> = {};
+    
+    for (const liquidation of this.liquidationHistory) {
+      // Count methods
+      const method = liquidation.method || 'unknown';
+      methodBreakdown[method] = (methodBreakdown[method] || 0) + 1;
+      
+      // Sum fees and payouts
+      if (liquidation.liquidationFee) {
+        totalFeesCollected = totalFeesCollected.plus(new Decimal(liquidation.liquidationFee));
+      }
+      if (liquidation.insuranceFundLoss) {
+        totalPayouts = totalPayouts.plus(new Decimal(liquidation.insuranceFundLoss));
+      }
+    }
+    
+    // Calculate growth metrics
+    const totalGrowth = currentBalance.minus(initialBalance);
+    const growthPercentage = totalGrowth.dividedBy(initialBalance).times(100);
+    const netGain = totalFeesCollected.minus(totalPayouts);
+    const averageFeePerLiquidation = totalLiquidations > 0 ? 
+      totalFeesCollected.dividedBy(totalLiquidations) : new Decimal(0);
+    const profitability = totalFeesCollected.greaterThan(0) ? 
+      netGain.dividedBy(totalFeesCollected).times(100) : new Decimal(0);
+    
     return {
-      balance: this.insuranceFund.toString(),
+      currentBalance: currentBalance.toString(),
+      balance: currentBalance.toString(), // Legacy field
       isAtRisk: this.isSystemAtRisk(),
-      historyEntries: this.insuranceFundHistory.length
+      historyEntries: this.insuranceFundHistory.length,
+      totalGrowth: totalGrowth.toString(),
+      growthPercentage: growthPercentage.toString(),
+      totalLiquidations,
+      totalFeesCollected: totalFeesCollected.toString(),
+      averageFeePerLiquidation: averageFeePerLiquidation.toString(),
+      totalPayouts: totalPayouts.toString(),
+      netGain: netGain.toString(),
+      profitability: profitability.toString(),
+      methodBreakdown
     };
   }
 }
