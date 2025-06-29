@@ -1229,7 +1229,7 @@ class Exchange {
   getState() {
     return {
       users: Array.from(this.users.values()).map(u => u.toJSON()),
-      positions: Array.from(this.positions.values()).map(p => p.toJSON()),
+      positions: Array.from(this.positions.values()).map(p => p.toJSON(this.currentMarkPrice)),
       orderBook: this.orderBook.toJSON(),
       trades: this.trades.slice(-20),
       markPrice: this.currentMarkPrice.toString(),
