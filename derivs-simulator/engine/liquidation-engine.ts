@@ -31,9 +31,9 @@ export interface LiquidationSummary {
 export interface PositionWithPnL {
   id: string;
   originalUserId: string;
-  size: Decimal;
-  avgEntryPrice: Decimal;
-  unrealizedPnL: Decimal;
+  size: string;  // JSON serialized
+  avgEntryPrice: string;  // JSON serialized
+  unrealizedPnL: string;  // JSON serialized
   timeSinceTransfer: number;
   [key: string]: any; // Allow for other LiquidationPosition properties
 }
@@ -228,9 +228,10 @@ export class PositionLiquidationEngine {
       const unrealizedPnL = this.calculatePositionPnL(position, currentPrice);
       return {
         ...position,
-        size: position.size, // Keep as Decimal
-        avgEntryPrice: position.avgEntryPrice, // Keep as Decimal
-        unrealizedPnL, // Keep as Decimal
+        side: position.side, // Explicitly include side getter
+        size: position.size.toString(), // Convert to string for JSON
+        avgEntryPrice: position.avgEntryPrice.toString(), // Convert to string for JSON
+        unrealizedPnL: unrealizedPnL.toString(), // Convert to string for JSON
         timeSinceTransfer: Date.now() - position.transferTime
       };
     });

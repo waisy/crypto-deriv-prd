@@ -14,7 +14,12 @@
     "test:watch": "jest --watch",
     "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand --no-cache",
     "test:liquidate": "jest test-liquidate-unit.js",
-    "test:liquidate:debug": "node --inspect-brk node_modules/.bin/jest test-liquidate-unit.js --runInBand --no-cache"
+    "test:liquidate:debug": "node --inspect-brk node_modules/.bin/jest test-liquidate-unit.js --runInBand --no-cache",
+    "e2e": "node e2e-tests/01-basic-order-trade.js",
+    "e2e:liquidation": "node e2e-tests/02-liquidation-transfer.js",
+    "e2e:clean": "node e2e-tests/run-tests.js",
+    "e2e:all": "for file in e2e-tests/*.js; do echo \"Running $file...\"; node \"$file\"; done",
+    "test:all": "npm test && npm run e2e:clean"
   },
   "dependencies": {
     "decimal.js": "^10.4.3",

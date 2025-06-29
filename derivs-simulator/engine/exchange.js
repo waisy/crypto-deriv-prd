@@ -34,6 +34,10 @@ class Exchange {
     // Logging and audit
     this.logLevel = 'DEBUG'; // DEBUG, INFO, WARN, ERROR
     
+    // Liquidation and ADL control flags
+    this.liquidationEnabled = true;
+    this.adlEnabled = true;
+    
     // Risk limits
     this.riskLimits = {
       maxPositionSize: 10.0,        // 10 BTC max position size
@@ -202,6 +206,18 @@ class Exchange {
         return await this.executeLiquidationStep(data.method);
       case 'get_state':
         return { success: true, state: this.getState() };
+      case 'reset_state':
+        return this.resetState();
+      case 'set_liquidation_enabled':
+        this.liquidationEnabled = data.enabled;
+        return { success: true, liquidationEnabled: this.liquidationEnabled };
+      case 'set_adl_enabled':
+        this.adlEnabled = data.enabled;
+        return { success: true, adlEnabled: this.adlEnabled };
+      case 'detect_liquidations':
+        return this.detectLiquidations();
+      case 'manual_liquidate':
+        return await this.manualLiquidate(data.userId);
       case 'manual_adjustment':
         return this.liquidationEngine.manualAdjustment(data.amount, data.description);
       default:
@@ -614,6 +630,11 @@ class Exchange {
     const liquidations = [];
     this.log('DEBUG', `Checking liquidations for ${this.positions.size} positions`);
     
+    if (!this.liquidationEnabled) {
+      this.log('DEBUG', '⏸️ Liquidation processing is disabled');
+      return liquidations;
+    }
+    
     for (const [userId, position] of this.positions.entries()) {
       const shouldLiquidate = this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice);
       
@@ -719,6 +740,125 @@ class Exchange {
     }
     
     return liquidations;
+  }
+
+  detectLiquidations() {
+    const liquidationsToDetect = [];
+    this.log('DEBUG', `Detecting liquidations for ${this.positions.size} positions (no execution)`);
+    
+    for (const [userId, position] of this.positions.entries()) {
+      const shouldLiquidate = this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice);
+      
+      if (shouldLiquidate) {
+        const bankruptcyPrice = this.marginCalculator.calculateBankruptcyPrice(position);
+        
+        liquidationsToDetect.push({
+          userId,
+          positionSide: position.side,
+          positionSize: position.size.toString(),
+          entryPrice: position.avgEntryPrice.toString(),
+          currentPrice: this.currentMarkPrice.toString(),
+          liquidationPrice: position.liquidationPrice.toString(),
+          bankruptcyPrice: bankruptcyPrice.toString(),
+          unrealizedPnL: position.unrealizedPnL.toString(),
+          initialMargin: position.initialMargin.toString()
+        });
+        
+        this.log('INFO', `🔍 LIQUIDATION DETECTED (not executed) for ${userId}`, {
+          positionSide: position.side,
+          positionSize: position.size.toString(),
+          entryPrice: position.avgEntryPrice.toString(),
+          currentPrice: this.currentMarkPrice.toString(),
+          liquidationPrice: position.liquidationPrice.toString(),
+          bankruptcyPrice: bankruptcyPrice.toString(),
+          unrealizedPnL: position.unrealizedPnL.toString()
+        });
+      }
+    }
+    
+    return {
+      success: true,
+      liquidationsDetected: liquidationsToDetect.length,
+      liquidations: liquidationsToDetect,
+      state: this.getState()
+    };
+  }
+
+  async manualLiquidate(userId) {
+    const position = this.positions.get(userId);
+    if (!position) {
+      return {
+        success: false,
+        error: `Position for user ${userId} not found`,
+        state: this.getState()
+      };
+    }
+
+    // Check if liquidation is warranted
+    const shouldLiquidate = this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice);
+    if (!shouldLiquidate) {
+      return {
+        success: false,
+        error: `Position for user ${userId} does not meet liquidation criteria`,
+        currentPrice: this.currentMarkPrice.toString(),
+        liquidationPrice: position.liquidationPrice.toString(),
+        state: this.getState()
+      };
+    }
+
+    this.log('INFO', `🔧 MANUAL LIQUIDATION REQUESTED for ${userId}`, {
+      positionSide: position.side,
+      positionSize: position.size.toString(),
+      entryPrice: position.avgEntryPrice.toString(),
+      currentPrice: this.currentMarkPrice.toString(),
+      liquidationPrice: position.liquidationPrice.toString(),
+      unrealizedPnL: position.unrealizedPnL.toString()
+    });
+    
+    this.logZeroSumCheck('Before manual liquidation');
+    
+    // Transfer position to liquidation engine at bankruptcy price
+    const bankruptcyPrice = this.marginCalculator.calculateBankruptcyPrice(position);
+    const transferredPosition = this.positionLiquidationEngine.receivePosition(position, bankruptcyPrice, userId);
+    
+    this.log('INFO', `📝 Manual liquidation: Position transferred to liquidation engine with ID: ${transferredPosition.id}`);
+    
+    // Handle margin accounting - user loses their margin in isolated margin system
+    const user = this.users.get(userId);
+    if (user) {
+      const marginAmount = position.initialMargin;
+      
+      // User loses entire margin (isolated margin max loss)
+      user.usedMargin = user.usedMargin.minus(marginAmount);
+      // Available balance stays the same - margin was already reserved
+      
+      this.log('INFO', `💸 MARGIN LOST in manual liquidation (isolated margin max loss)`, {
+        userId,
+        marginLost: marginAmount.toString(),
+        newUsedMargin: user.usedMargin.toString(),
+        availableBalance: user.availableBalance.toString(),
+        note: 'Available balance unchanged - margin was already reserved'
+      });
+    }
+    
+    // Remove position from user positions (now transferred to liquidation engine)
+    this.positions.delete(userId);
+    
+    this.logZeroSumCheck('After manual liquidation and position transfer');
+    
+    return {
+      success: true,
+      message: `Position for ${userId} manually liquidated and transferred to liquidation engine`,
+      transferredPosition: {
+        id: transferredPosition.id,
+        originalUserId: transferredPosition.originalUserId,
+        side: transferredPosition.side,
+        size: transferredPosition.size.toString(),
+        entryPrice: transferredPosition.avgEntryPrice.toString(),
+        bankruptcyPrice: bankruptcyPrice.toString()
+      },
+      state: this.getState()
+    };
   }
 
   async forceLiquidation(userId) {
@@ -1042,6 +1182,48 @@ class Exchange {
         throw new Error(`Total position value would exceed limit.`);
       }
     }
+  }
+
+  resetState() {
+    console.log('🔄 RESETTING EXCHANGE STATE...');
+    
+    // Clear all collections
+    this.positions.clear();
+    this.trades = [];
+    
+    // Reset liquidation engine
+    this.positionLiquidationEngine = new PositionLiquidationEngine();
+    
+    // Reset ADL socialization tracking  
+    this.adlSocializationAmounts.clear();
+    
+    // Reset order book and matching engine
+    this.orderBook = new OrderBook();
+    this.matchingEngine = new MatchingEngine(this.orderBook);
+    
+    // Reset liquidation engine with new instances
+    this.liquidationEngine = new LiquidationEngine(this.matchingEngine, this.orderBook, this.marginCalculator, this.adlEngine);
+    
+    // Reset margin monitor
+    this.marginMonitor = new MarginMonitor(this.marginCalculator);
+    
+    // Clear users and reinitialize with fresh balances
+    this.users.clear();
+    this.initializeUsers();
+    
+    // Reset prices to defaults
+    this.currentMarkPrice = new Decimal(50000);
+    this.indexPrice = new Decimal(50000);
+    this.fundingRate = new Decimal(0.0001);
+    
+    console.log('✅ EXCHANGE STATE RESET COMPLETE');
+    this.logZeroSumCheck('After state reset');
+    
+    return { 
+      success: true, 
+      message: 'Exchange state reset successfully',
+      state: this.getState() 
+    };
   }
 
   getState() {

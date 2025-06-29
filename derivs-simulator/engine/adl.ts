@@ -42,7 +42,7 @@ export interface ADLAffectedUser {
   impactPercentage: number;
 }
 
-export interface LiquidationPosition {
+export interface ADLLiquidationPosition {
   id: string | number;
   side: 'long' | 'short';
   size: Decimal | string | number;
@@ -173,7 +173,7 @@ export class ADLEngine {
   }
 
   planADL(
-    lePosition: LiquidationPosition, 
+    lePosition: ADLLiquidationPosition, 
     allUserPositions: Map<string, Position>, 
     users: Map<string, User>, 
     markPrice: Decimal | number | string, 
@@ -301,7 +301,7 @@ export class ADLEngine {
   }
 
   calculateADLSocializationPrice(
-    lePosition: LiquidationPosition, 
+    lePosition: ADLLiquidationPosition, 
     profitableCounterparties: Array<{ userId: string; unrealizedPnL: Decimal; size: Decimal }>, 
     markPrice: Decimal, 
     socializationAmount: number

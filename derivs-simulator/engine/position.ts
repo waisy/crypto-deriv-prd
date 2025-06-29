@@ -415,7 +415,9 @@ export class LiquidationPosition extends Position {
   public lastAttemptTime: number | null;
 
   constructor(originalPosition: Position, bankruptcyPrice: number | string | Decimal, userId: string, liquidationId: string) {
-    // Convert position side to trade side for liquidation transfer
+    // For liquidation engine to inherit the same position side, it needs to do the SAME trade side
+    // If original was long (net buy), liquidation engine does buy to be long
+    // If original was short (net sell), liquidation engine does sell to be short
     const tradeSide: TradeSide = originalPosition.side === 'long' ? 'buy' : 'sell';
     
     // Create initial trade at bankruptcy price to represent position transfer
@@ -436,5 +438,13 @@ export class LiquidationPosition extends Position {
     this.status = 'pending';
     this.attempts = 0;
     this.lastAttemptTime = null;
+  }
+  
+  /**
+   * Override avgEntryPrice to use original entry price for PnL calculations
+   * The bankruptcy price trade is just for transfer mechanics
+   */
+  get avgEntryPrice(): Decimal {
+    return this.originalEntryPrice;
   }
 } 
