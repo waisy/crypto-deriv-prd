@@ -1,4 +1,4 @@
-const { Trade } = require('./engine/trade');
+const { Trade } = require('./engine/trade.ts');
 
 describe('Trade Class Unit Tests', () => {
   describe('Constructor', () => {

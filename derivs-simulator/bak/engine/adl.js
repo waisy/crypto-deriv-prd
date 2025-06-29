@@ -1,5 +1,5 @@
 const { Decimal } = require('decimal.js');
-const { Position } = require('./position');
+const { Position } = require('./position.ts');
 
 class ADLEngine {
   constructor() {

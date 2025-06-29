@@ -1,5 +1,5 @@
 const Decimal = require('decimal.js');
-const { LiquidationPosition } = require('./position');
+const { LiquidationPosition } = require('./position.ts');
 
 class PositionLiquidationEngine {
     constructor() {

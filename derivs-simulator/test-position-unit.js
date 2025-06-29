@@ -1,5 +1,5 @@
-const { Position, LiquidationPosition } = require('./engine/position');
-const { Trade } = require('./engine/trade');
+const { Position, LiquidationPosition } = require('./engine/position.ts');
+const { Trade } = require('./engine/trade.ts');
 
 describe('Position Class Unit Tests', () => {
   let initialTrade;

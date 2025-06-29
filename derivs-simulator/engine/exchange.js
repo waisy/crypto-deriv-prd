@@ -1,15 +1,15 @@
 const { Decimal } = require('decimal.js');
-const { OrderBook } = require('./orderbook');
-const { Position } = require('./position');
-const { Trade } = require('./trade');
-const { User } = require('./user');
-const { MatchingEngine } = require('./matching');
-const { MarginCalculator } = require('./margin');
-const { LiquidationEngine } = require('./liquidation');
-const { ADLEngine } = require('./adl');
-const { MarginMonitor } = require('./margin-monitor');
-const PositionLiquidationEngine = require('./liquidation-engine');
-const { PerformanceOptimizer } = require('./performance-optimizer');
+const { OrderBook } = require('./orderbook.ts');
+const { Position } = require('./position.ts');
+const { Trade } = require('./trade.ts');
+const { User } = require('./user.ts');
+const { MatchingEngine } = require('./matching.ts');
+const { MarginCalculator } = require('./margin.ts');
+const { LiquidationEngine } = require('./liquidation.ts');
+const { ADLEngine } = require('./adl.ts');
+const { MarginMonitor } = require('./margin-monitor.ts');
+const PositionLiquidationEngine = require('./liquidation-engine.ts');
+const { PerformanceOptimizer } = require('./performance-optimizer.ts');
 
 class Exchange {
   constructor() {
@@ -238,7 +238,7 @@ class Exchange {
       id: Date.now().toString(),
       userId,
       side,
-      originalSize: decSize,
+      size: decSize,
       remainingSize: decSize,
       filledSize: new Decimal(0),
       price: decPrice,
@@ -797,7 +797,7 @@ class Exchange {
               id: `le_order_${Date.now()}_${position.id}`,
               userId: 'liquidation_engine',
               side: liquidationSide,
-              originalSize: new Decimal(position.size),
+              size: new Decimal(position.size),
               remainingSize: new Decimal(position.size),
               filledSize: new Decimal(0),
               price: null, // Market order
@@ -911,7 +911,7 @@ class Exchange {
                 id: `le_adl_${Date.now()}_${lePosition.id}`,
                 userId: 'liquidation_engine',
                 side: leSide,
-                originalSize: new Decimal(size),
+                size: new Decimal(size),
                 remainingSize: new Decimal(size),
                 filledSize: new Decimal(0),
                 price: new Decimal(price),
@@ -934,7 +934,7 @@ class Exchange {
                 id: `adl_counterparty_${Date.now()}_${counterpartyUserId}`,
                 userId: counterpartyUserId,
                 side: counterpartySide,
-                originalSize: new Decimal(size),
+                size: new Decimal(size),
                 remainingSize: new Decimal(size),
                 filledSize: new Decimal(0),
                 price: new Decimal(price),

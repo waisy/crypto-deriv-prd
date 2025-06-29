@@ -6,8 +6,8 @@ const originalConsoleError = console.error;
 
 // Import the actual class (not Jest-style describe/test)
 const { LiquidationEngine } = require('./engine/liquidation');
-const { Position } = require('./engine/position');
-const { Trade } = require('./engine/trade');
+const { Position } = require('./engine/position.ts');
+const { Trade } = require('./engine/trade.ts');
 
 // Mock dependencies
 class MockMatchingEngine {

@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-const { Position } = require('./engine/position');
+const { Position } = require('./engine/position.ts');
 
 class LiquidationMechanicsTest {
   constructor() {
