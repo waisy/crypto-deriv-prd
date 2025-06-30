@@ -314,7 +314,7 @@
             <h3 style="margin-top: 0; margin-bottom: 15px; color: #34495e;">Manual Fund Adjustment</h3>
             <div class="adjustment-form">
                 <input type="number" id="adjAmount" placeholder="Amount" step="1000">
-                <input type="text" id="adjDesc" placeholder="Description (e.g., Capital injection)">
+                <input type="text" id="adjDesc" placeholder="Description (optional)">
                 <button class="deposit-btn" onclick="makeAdjustment('deposit')">Deposit</button>
                 <button class="withdraw-btn" onclick="makeAdjustment('withdrawal')">Withdraw</button>
             </div>
@@ -558,16 +558,18 @@
             const descriptionEl = document.getElementById('adjDesc');
             
             let amount = parseFloat(amountEl.value);
-            const description = descriptionEl.value;
+            let description = descriptionEl.value;
 
             if (isNaN(amount) || amount <= 0) {
                 alert('Please enter a valid positive amount.');
                 return;
             }
 
+            // Auto-generate description if not provided
             if (!description) {
-                alert('Please provide a description for the adjustment.');
-                return;
+                description = type === 'withdrawal' 
+                    ? `Manual withdrawal of $${amount.toFixed(2)}`
+                    : `Manual deposit of $${amount.toFixed(2)}`;
             }
 
             if (type === 'withdrawal') {
