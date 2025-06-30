@@ -46,12 +46,9 @@ export class LiquidationEngine {
     const decCurrentPrice = new Decimal(currentPrice);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
     
-    // CORRECT LIQUIDATION FEE CALCULATION:
-    // Fee is the difference between current price and bankruptcy price
-    // If current price > bankruptcy price: positive fee to Insurance Fund
-    // If current price < bankruptcy price: negative fee (Insurance Fund pays)
-    const priceDifference = decCurrentPrice.minus(bankruptcyPrice);
-    let liquidationFee = priceDifference.times(position.size);
+    // NO LIQUIDATION FEE DURING POSITION TRANSFER:
+    // Position is simply transferred to liquidation engine at bankruptcy price
+    // Any price differences will be handled during actual liquidation (ADL/orderbook)
     
     // Calculate pre-liquidation loss
     const preLiquidationPnL = position.calculateUnrealizedPnL(decCurrentPrice);
@@ -92,9 +89,8 @@ export class LiquidationEngine {
           fills = matchResults;
           totalExecuted = liquidationOrder.filledSize;
           
-          // Recalculate liquidation fee based on actual execution price
-          const actualPriceDifference = executionPrice.minus(bankruptcyPrice);
-          liquidationFee = actualPriceDifference.times(totalExecuted);
+          // NO FEE CALCULATION - position transfer only
+          // Price differences handled by actual liquidation mechanism
         }
       } catch (error) {
         console.log('Order book liquidation failed, falling back to bankruptcy price');  
@@ -110,7 +106,7 @@ export class LiquidationEngine {
       initialMargin: position.initialMargin,
       bankruptcyPrice,
       preLiquidationLoss,
-      liquidationFee,
+
       timestamp: Date.now(),
       method,
       executionPrice,
@@ -125,12 +121,14 @@ export class LiquidationEngine {
   }
 
   updateInsuranceFund(liquidationResult: any, allPositions: Map<string, Position>): void {
-    this.insuranceFund = this.insuranceFund.plus(liquidationResult.liquidationFee);
+    // NO INSURANCE FUND UPDATE DURING LIQUIDATION
+    // Position transfer should not affect Insurance Fund balance
+    // Only actual liquidation resolution (ADL/orderbook) affects Insurance Fund
     
-    // Store liquidation in history for insurance fund tracking
+    // Store liquidation in history for tracking (but no fund changes)
     this.liquidationHistory.push({
       ...liquidationResult,
-      liquidationFee: liquidationResult.liquidationFee?.toString() || '0',
+
       insuranceFundLoss: liquidationResult.insuranceFundLoss?.toString() || '0',
       size: liquidationResult.size?.toString() || '0',
       entryPrice: liquidationResult.entryPrice?.toString() || '0',
@@ -139,14 +137,7 @@ export class LiquidationEngine {
       remainingBalance: liquidationResult.remainingBalance?.toString() || '0'
     });
     
-    // Also add to insurance fund history for balance tracking
-    this.insuranceFundHistory.push({
-      timestamp: liquidationResult.timestamp || Date.now(),
-      type: 'liquidation_fee',
-      amount: liquidationResult.liquidationFee?.toString() || '0',
-      balance: this.insuranceFund.toString(),
-      description: `Liquidation fee from ${liquidationResult.userId} (${liquidationResult.method})`
-    });
+
     
     // If there was an insurance fund loss, record that too
     if (liquidationResult.insuranceFundLoss && new Decimal(liquidationResult.insuranceFundLoss).greaterThan(0)) {
@@ -236,10 +227,7 @@ export class LiquidationEngine {
       const method = liquidation.method || 'unknown';
       methodBreakdown[method] = (methodBreakdown[method] || 0) + 1;
       
-      // Sum fees and payouts
-      if (liquidation.liquidationFee) {
-        totalFeesCollected = totalFeesCollected.plus(new Decimal(liquidation.liquidationFee));
-      }
+      // Sum payouts
       if (liquidation.insuranceFundLoss) {
         totalPayouts = totalPayouts.plus(new Decimal(liquidation.insuranceFundLoss));
       }

@@ -519,7 +519,7 @@
             const sortedLiquidations = [...insuranceFundData.liquidations].sort((a, b) => b.timestamp - a.timestamp);
 
             const liquidationHtml = sortedLiquidations.map(liq => {
-                const liquidationFee = parseFloat(liq.liquidationFee || 0);
+        
                 const netImpact = parseFloat(liq.netInsuranceFundImpact || 0);
                 const entryPrice = parseFloat(liq.entryPrice || 0);
                 const executionPrice = parseFloat(liq.executionPrice || 0);
@@ -534,7 +534,7 @@
                         <td><span class="side-badge ${liq.side}">${liq.side}</span></td>
                         <td>${parseFloat(liq.size || 0).toFixed(3)} BTC</td>
                         <td><span class="method-badge ${liq.method}">${liq.method.replace('_', ' ')}</span></td>
-                        <td class="amount positive">+$${liquidationFee.toFixed(2)}</td>
+                        <td class="amount">$0.00</td>
                         <td class="amount ${netImpact >= 0 ? 'positive' : 'negative'}">
                             ${netImpact >= 0 ? '+' : ''}$${netImpact.toFixed(2)}
                         </td>

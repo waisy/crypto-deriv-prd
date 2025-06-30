@@ -332,11 +332,12 @@ describe('LiquidationEngine.liquidate', () => {
 
       // Assert
       const finalFund = liquidationEngine.getInsuranceFundBalance();
-      expect(finalFund).not.toEqual(initialFund);
+      // With liquidation fees removed, insurance fund should remain unchanged during liquidation
+      expect(finalFund).toEqual(initialFund);
       
-      // Insurance fund should have increased due to liquidation fee
+      // No liquidation fee should be collected during position transfer
       const fundChange = new Decimal(finalFund).minus(new Decimal(initialFund));
-      expect(fundChange.gt(0)).toBe(true); // Should be positive (fee collected)
+      expect(fundChange.toString()).toBe('0'); // Should be zero (no fee)
     });
   });
 
@@ -427,7 +428,7 @@ describe('LiquidationEngine.liquidate', () => {
         initialMargin: expect.any(Object), // Decimal object
         bankruptcyPrice: expect.any(Object), // Decimal object
         preLiquidationLoss: expect.any(Object), // Decimal object
-        liquidationFee: expect.any(Object), // Decimal object
+
         timestamp: expect.any(Number),
         method: expect.any(String),
         executionPrice: expect.any(Object), // Decimal object
@@ -490,7 +491,7 @@ async function manualTest() {
       method: result.method,
       executionPrice: result.executionPrice.toString(),
       totalExecuted: result.totalExecuted.toString(),
-      liquidationFee: result.liquidationFee.toString(),
+      
       remainingBalance: result.remainingBalance.toString(),
       insuranceFundBalance: liquidationEngine.getInsuranceFundBalance()
     });

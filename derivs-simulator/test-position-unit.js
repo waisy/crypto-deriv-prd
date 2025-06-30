@@ -166,10 +166,7 @@ describe('Position Class Unit Tests', () => {
       expect(position.getNotionalValue(50000).toString()).toBe('100000');
     });
 
-    test('should calculate liquidation fee', () => {
-      const fee = position.calculateLiquidationFee(50000, 0.015);
-      expect(fee.toString()).toBe('1500');
-    });
+    // Liquidation fee calculation removed - no longer needed
   });
 
   describe('ROE Calculation', () => {

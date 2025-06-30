@@ -314,11 +314,7 @@ export class Position {
     return this.size.times(new Decimal(currentPrice));
   }
 
-  calculateLiquidationFee(currentPrice: number | string | Decimal, feeRate: number | string | Decimal): Decimal {
-    const decCurrentPrice = new Decimal(currentPrice);
-    const decFeeRate = new Decimal(feeRate);
-    return this.size.times(decCurrentPrice).times(decFeeRate);
-  }
+
 
   getRoE(currentPrice: number | string | Decimal | null = null): Decimal {
     if (this.initialMargin.isZero() || this.initialMargin === null || this.initialMargin === undefined) {
