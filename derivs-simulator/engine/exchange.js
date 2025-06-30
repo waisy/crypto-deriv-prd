@@ -241,14 +241,71 @@ class Exchange {
 
     const decSize = new Decimal(size);
     const decPrice = new Decimal(price || this.currentMarkPrice);
-    const marginReq = this.marginCalculator.calculateInitialMargin(decSize, decPrice, user.leverage);
+    
+    // Check if this order would reduce an existing position
+    const existingPosition = this.positions.get(userId);
+    const isPositionReducingOrder = existingPosition && 
+      ((existingPosition.side === 'long' && side === 'sell') || 
+       (existingPosition.side === 'short' && side === 'buy'));
+    
+    let marginReq = new Decimal(0);
+    
+    if (isPositionReducingOrder) {
+      // For position-reducing orders, check if we have sufficient position to reduce
+      if (decSize.greaterThan(existingPosition.size)) {
+        // This would flip the position - calculate margin for the net increase
+        const netIncrease = decSize.minus(existingPosition.size);
+        marginReq = this.marginCalculator.calculateInitialMargin(netIncrease, decPrice, user.leverage);
+        
+        this.log('INFO', `🔄 POSITION-REDUCING ORDER WITH NET INCREASE`, {
+          userId,
+          orderSide: side,
+          orderSize: decSize.toString(),
+          existingPositionSide: existingPosition.side,
+          existingPositionSize: existingPosition.size.toString(),
+          netIncrease: netIncrease.toString(),
+          marginRequired: marginReq.toString()
+        });
+      } else {
+        // Pure position reduction - no additional margin required
+        marginReq = new Decimal(0);
+        
+        this.log('INFO', `🔄 PURE POSITION-REDUCING ORDER`, {
+          userId,
+          orderSide: side,
+          orderSize: decSize.toString(),
+          existingPositionSide: existingPosition.side,
+          existingPositionSize: existingPosition.size.toString(),
+          marginRequired: marginReq.toString()
+        });
+      }
+    } else {
+      // New position or position-increasing order - calculate full margin requirement
+      marginReq = this.marginCalculator.calculateInitialMargin(decSize, decPrice, user.leverage);
+      
+      this.log('INFO', `📊 NEW/INCREASING POSITION ORDER`, {
+        userId,
+        orderSide: side,
+        orderSize: decSize.toString(),
+        hasExistingPosition: !!existingPosition,
+        marginRequired: marginReq.toString()
+      });
+    }
     
     if (user.availableBalance.lessThan(marginReq)) {
-      throw new Error('Insufficient margin');
+      throw new Error(`Insufficient margin. Required: $${marginReq}, Available: $${user.availableBalance}`);
     }
 
-    // Update available balance but don't deduct from total balance
-    user.availableBalance = user.availableBalance.minus(marginReq);
+    // Reserve margin only if required
+    if (marginReq.greaterThan(0)) {
+      user.availableBalance = user.availableBalance.minus(marginReq);
+      
+      this.log('INFO', `💰 MARGIN RESERVED`, {
+        userId,
+        marginReserved: marginReq.toString(),
+        newAvailableBalance: user.availableBalance.toString()
+      });
+    }
     
     const order = {
       id: Date.now().toString(),
@@ -478,11 +535,11 @@ class Exchange {
           });
         }
         
-                 // Apply P&L realization to user balance
-         user.realizePnL(realizedPnL);
-         
-         // Release margin back to available balance
-         user.releaseMargin(marginReleased);
+        // Apply P&L realization to user balance
+        user.realizePnL(realizedPnL);
+        
+        // Release margin back to available balance
+        user.releaseMargin(marginReleased);
         
         this.log('INFO', `✅ P&L REALIZED AND MARGIN RELEASED`, {
           userId,
