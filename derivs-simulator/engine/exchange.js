@@ -854,7 +854,7 @@ class Exchange {
             // Transfer the lost portion to Insurance Fund
             const marginLost = marginAmount.minus(remainingMargin);
             if (marginLost.greaterThan(0)) {
-              this.liquidationEngine.manualAdjustment(marginLost, `Partial liquidation margin loss from ${userId}`);
+              this.liquidationEngine.manualAdjustment(marginLost, `Partial liquidation margin loss from ${userId}`, 'liquidation_margin');
             }
             
             this.log('INFO', `💰 PARTIAL MARGIN RETURN to ${userId}`, {
@@ -870,7 +870,7 @@ class Exchange {
             // Available balance stays the same - user only loses the margin that was already reserved
             
             // CRITICAL FIX: Transfer lost margin to Insurance Fund to maintain zero-sum
-            this.liquidationEngine.manualAdjustment(marginAmount, `Liquidation margin loss from ${userId}`);
+            this.liquidationEngine.manualAdjustment(marginAmount, `Liquidation margin loss from ${userId}`, 'liquidation_margin');
             
             this.log('INFO', `💸 MARGIN LOST in liquidation (isolated margin max loss)`, {
               userId,
@@ -991,7 +991,7 @@ class Exchange {
       // Available balance stays the same - margin was already reserved
       
       // CRITICAL FIX: Transfer lost margin to Insurance Fund to maintain zero-sum
-      this.liquidationEngine.manualAdjustment(marginAmount, `Manual liquidation margin loss from ${userId}`);
+              this.liquidationEngine.manualAdjustment(marginAmount, `Manual liquidation margin loss from ${userId}`, 'liquidation_margin');
       
       this.log('INFO', `💸 MARGIN LOST in manual liquidation (isolated margin max loss)`, {
         userId,

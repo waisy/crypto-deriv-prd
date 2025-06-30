@@ -177,14 +177,20 @@ export class LiquidationEngine {
     this.adlEngine = adlEngine;
   }
 
-  manualAdjustment(amount: any, description?: string): any {
+  manualAdjustment(amount: any, description?: string, type?: string): any {
     const decAmount = new Decimal(amount);
     this.insuranceFund = this.insuranceFund.plus(decAmount);
+    
+    // Determine the appropriate type
+    let entryType = type;
+    if (!entryType) {
+      entryType = decAmount.greaterThan(0) ? 'manual_deposit' : 'manual_withdrawal';
+    }
     
     // Record in insurance fund history
     this.insuranceFundHistory.push({
       timestamp: Date.now(),
-      type: decAmount.greaterThan(0) ? 'manual_deposit' : 'manual_withdrawal',
+      type: entryType,
       amount: decAmount.toString(),
       balance: this.insuranceFund.toString(),
       description: description || (decAmount.greaterThan(0) ? 'Manual deposit' : 'Manual withdrawal')
