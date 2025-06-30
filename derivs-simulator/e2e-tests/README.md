@@ -72,6 +72,41 @@ Each e2e test follows this pattern:
 🎉 ALL TESTS PASSED!
 ```
 
+### 03-pnl-realization.js
+**Purpose**: Tests P&L realization when positions are partially reduced
+
+**Scenario**:
+- Bob and Eve create 1 BTC positions (Bob: long, Eve: short) at $45,000 with **2x leverage**
+- Mark price moves to $46,000 (creating $1,000 profit for Bob, $1,000 loss for Eve)
+- Bob reduces his position by 50% (sells 0.5 BTC at $46,000)
+- Eve hits Bob's order, reducing both positions to 0.5 BTC each
+- **No liquidations occur** due to conservative leverage and price movements
+
+**Verifications**:
+- ✅ Initial positions created correctly (1 BTC each with 2x leverage)
+- ✅ P&L correctly calculated after price move ($1,000 each side)
+- ✅ Partial position reduction executes successfully
+- ✅ **P&L realization**: Bob realizes ~$500 profit (50% of unrealized P&L)
+- ✅ **Balance increase**: Bob's available balance increases by realized P&L
+- ✅ **Proportional realization**: Realized P&L proportional to position reduction
+- ✅ Remaining positions are 0.5 BTC each
+- ✅ **No liquidations triggered** (conservative test parameters)
+- ✅ System balance conservation maintained
+- ✅ Zero-sum properties preserved after realization
+
+**Expected Output**:
+```
+🧪 E2E TEST: P&L Realization Functionality
+✅ Bob has positive unrealized P&L
+✅ Eve has negative unrealized P&L
+✅ Bob realized approximately $500 P&L
+✅ Bob's available balance increased
+✅ System balance conserved
+✅ Unrealized P&L sums to zero
+...
+🎉 ALL TESTS PASSED! P&L realization is working correctly.
+```
+
 ## Test Features
 
 ### State Logging
