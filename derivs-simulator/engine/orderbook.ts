@@ -198,6 +198,9 @@ export class OrderBook {
         sanitizedOrder[key] = sanitizedOrder[key].toString();
       }
     }
+    
+
+    
     // Also sanitize fills if they exist
     if (sanitizedOrder.fills) {
         sanitizedOrder.fills = sanitizedOrder.fills.map((fill: Fill) => this.toJSONOrder(fill as any));

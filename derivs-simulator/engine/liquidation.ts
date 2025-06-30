@@ -202,6 +202,10 @@ export class LiquidationEngine {
     return this.insuranceFundHistory;
   }
 
+  getLiquidationHistory(): any[] {
+    return this.liquidationHistory;
+  }
+
   isSystemAtRisk(): boolean {
     // Simple risk assessment based on insurance fund level
     const currentBalance = this.insuranceFund;

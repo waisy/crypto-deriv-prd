@@ -485,7 +485,10 @@
                 return;
             }
 
-            const historyHtml = insuranceFundData.history.map(entry => {
+            // Sort by timestamp descending (most recent first)
+            const sortedHistory = [...insuranceFundData.history].sort((a, b) => b.timestamp - a.timestamp);
+
+            const historyHtml = sortedHistory.map(entry => {
                 const amount = parseFloat(entry.amount);
                 const balance = parseFloat(entry.balance);
                 
@@ -512,7 +515,10 @@
                 return;
             }
 
-            const liquidationHtml = insuranceFundData.liquidations.map(liq => {
+            // Sort by timestamp descending (most recent first)
+            const sortedLiquidations = [...insuranceFundData.liquidations].sort((a, b) => b.timestamp - a.timestamp);
+
+            const liquidationHtml = sortedLiquidations.map(liq => {
                 const liquidationFee = parseFloat(liq.liquidationFee || 0);
                 const netImpact = parseFloat(liq.netInsuranceFundImpact || 0);
                 const entryPrice = parseFloat(liq.entryPrice || 0);

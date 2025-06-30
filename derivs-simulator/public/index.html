@@ -972,17 +972,17 @@
                 // Clean order data before creating Decimals
                 const cleanFilledSize = typeof order.filledSize === 'string' ? 
                     order.filledSize.replace(/[^0-9.-]/g, '') : order.filledSize;
-                const cleanOriginalSize = typeof order.originalSize === 'string' ? 
-                    order.originalSize.replace(/[^0-9.-]/g, '') : order.originalSize;
+                const cleanSize = typeof order.size === 'string' ? 
+                    order.size.replace(/[^0-9.-]/g, '') : order.size;
                 
-                const filledPercent = new Decimal(cleanFilledSize || 0).div(cleanOriginalSize || 1).times(100);
-                const remainingSize = new Decimal(cleanOriginalSize || 0).minus(cleanFilledSize || 0);
+                const filledPercent = new Decimal(cleanFilledSize || 0).div(cleanSize || 1).times(100);
+                const remainingSize = new Decimal(cleanSize || 0).minus(cleanFilledSize || 0);
                 
                 const row = document.createElement('tr');
                 row.className = `order-row ${statusClass}`;
                 row.innerHTML = `
                     <td class="side-cell ${sideClass}">${order.side.toUpperCase()}</td>
-                    <td class="size-cell">${formatBTCAmount(order.originalSize)} BTC</td>
+                    <td class="size-cell">${formatBTCAmount(order.size)} BTC</td>
                     <td class="price-cell">$${formatPrice(order.price)}</td>
                     <td class="filled-cell">
                         <span class="filled-amount">${formatBTCAmount(order.filledSize)}</span>
@@ -1184,6 +1184,9 @@
             }
         }
 
+        // Store button confirmation states
+        const buttonConfirmationStates = {};
+        
         function executeLiquidationStep(method) {
             const leData = state.positionLiquidationEngine;
             if (!leData || !leData.positions || leData.positions.length === 0) {
@@ -1191,18 +1194,67 @@
                 return;
             }
 
-            const confirmMessage = method === 'orderbook' ? 'Try to liquidate via order book?' :
-                                 method === 'adl' ? 'Execute ADL liquidation?' :
-                                 'Force close all positions?';
+            const buttonId = method + 'Btn';
+            const button = document.getElementById(buttonId);
             
-            if (!confirm(confirmMessage)) {
+            // If button is already in confirmation state, execute
+            if (buttonConfirmationStates[buttonId]) {
+                // Execute the action
+                executeLiquidationAction(method);
+                // Reset button state
+                resetButtonConfirmation(buttonId);
                 return;
             }
 
+            // First click - enter confirmation state
+            setButtonConfirmation(buttonId, method);
+        }
+        
+        function setButtonConfirmation(buttonId, method) {
+            const button = document.getElementById(buttonId);
+            buttonConfirmationStates[buttonId] = true;
+            
+            // Update button appearance and text
+            button.classList.add('confirming');
+            const originalText = button.textContent;
+            
+            const confirmTexts = {
+                'orderbook': 'Click again to try Order Book',
+                'adl': 'Click again to Execute ADL', 
+                'force': 'Click again to Force Close'
+            };
+            
+            button.textContent = confirmTexts[method] || 'Click again to confirm';
+            
+            // Reset after 3 seconds if no second click
+            setTimeout(() => {
+                if (buttonConfirmationStates[buttonId]) {
+                    resetButtonConfirmation(buttonId);
+                }
+            }, 3000);
+        }
+        
+        function resetButtonConfirmation(buttonId) {
+            const button = document.getElementById(buttonId);
+            buttonConfirmationStates[buttonId] = false;
+            
+            // Restore button appearance and text
+            button.classList.remove('confirming');
+            
+            const originalTexts = {
+                'orderbookBtn': 'Try Order Book',
+                'adlBtn': 'Execute ADL',
+                'forceBtn': 'Force Close'
+            };
+            
+            button.textContent = originalTexts[buttonId] || 'Execute';
+        }
+        
+        function executeLiquidationAction(method) {
             // Update status
             document.getElementById('liquidationStatus').textContent = `Executing ${method} liquidation...`;
             
-            // Disable buttons temporarily
+            // Disable all buttons temporarily
             document.getElementById('orderbookBtn').disabled = true;
             document.getElementById('adlBtn').disabled = true;
             document.getElementById('forceBtn').disabled = true;

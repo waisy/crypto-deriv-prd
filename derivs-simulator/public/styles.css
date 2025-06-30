@@ -224,6 +224,25 @@ body {
     background: #3a3f4e;
 }
 
+.btn-secondary.confirming {
+    background: #ff6b35;
+    border-color: #ff6b35;
+    color: #ffffff;
+    animation: pulse-confirm 1.5s infinite;
+    font-weight: 600;
+}
+
+.btn-secondary.confirming:hover {
+    background: #e55a2b;
+    border-color: #e55a2b;
+}
+
+@keyframes pulse-confirm {
+    0% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(255, 107, 53, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0); }
+}
+
 /* Price Adjustment Buttons */
 .price-adjustment-buttons {
     display: flex;

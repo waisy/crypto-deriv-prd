@@ -101,8 +101,14 @@ app.get('/api/state', (req, res) => {
 app.get('/api/insurance-fund', (req, res) => {
   try {
     const history = exchange.liquidationEngine.getInsuranceFundHistory();
+    const liquidations = exchange.liquidationEngine.getLiquidationHistory();
     const summary = exchange.liquidationEngine.getInsuranceFundSummary();
-    res.json({ ...history, summary });
+    
+    res.json({ 
+      history: history,
+      liquidations: liquidations,
+      summary: summary 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
