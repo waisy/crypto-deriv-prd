@@ -185,9 +185,11 @@ class Exchange {
   initializeUsers() {
     const bob = new User('bob', 'Bob', 100000); // $100k balance
     const eve = new User('eve', 'Eve', 100000); // $100k balance
+    const alice = new User('alice', 'Alice', 100000); // $100k balance
     
     this.users.set('bob', bob);
     this.users.set('eve', eve);
+    this.users.set('alice', alice);
   }
 
   async handleMessage(data) {
