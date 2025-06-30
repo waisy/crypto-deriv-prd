@@ -519,6 +519,9 @@
                             <button class="btn-secondary" onclick="executeLiquidationStep('force')" disabled id="forceBtn">
                                 Force Close
                             </button>
+                            <button class="btn-secondary" onclick="resetExchange()" id="resetBtn">
+                                Reset Exchange
+                            </button>
                         </div>
                         <div class="liquidation-status" id="liquidationStatus">
                             Ready for liquidation operations
@@ -1244,7 +1247,8 @@
             const originalTexts = {
                 'orderbookBtn': 'Try Order Book',
                 'adlBtn': 'Execute ADL',
-                'forceBtn': 'Force Close'
+                'forceBtn': 'Force Close',
+                'resetBtn': 'Reset Exchange'
             };
             
             button.textContent = originalTexts[buttonId] || 'Execute';
@@ -1271,6 +1275,64 @@
                 document.getElementById('adlBtn').disabled = false;
                 document.getElementById('forceBtn').disabled = false;
             }, 3000);
+        }
+
+        function resetExchange() {
+            const buttonId = 'resetBtn';
+            const button = document.getElementById(buttonId);
+            
+            // If button is already in confirmation state, execute
+            if (buttonConfirmationStates[buttonId]) {
+                // Execute the reset
+                executeResetAction();
+                // Reset button state
+                resetButtonConfirmation(buttonId);
+                return;
+            }
+
+            // First click - enter confirmation state
+            setResetConfirmation(buttonId);
+        }
+        
+        function setResetConfirmation(buttonId) {
+            const button = document.getElementById(buttonId);
+            buttonConfirmationStates[buttonId] = true;
+            
+            // Update button appearance and text
+            button.classList.add('confirming');
+            button.textContent = 'Click again to Reset All Data';
+            
+            // Reset after 3 seconds if no second click
+            setTimeout(() => {
+                if (buttonConfirmationStates[buttonId]) {
+                    resetButtonConfirmation(buttonId);
+                }
+            }, 3000);
+        }
+        
+        function executeResetAction() {
+            // Update status
+            document.getElementById('liquidationStatus').textContent = 'Resetting exchange state...';
+            
+            // Disable all buttons temporarily
+            document.getElementById('orderbookBtn').disabled = true;
+            document.getElementById('adlBtn').disabled = true;
+            document.getElementById('forceBtn').disabled = true;
+            document.getElementById('resetBtn').disabled = true;
+
+            // Send reset command to server
+            ws.send(JSON.stringify({
+                type: 'reset_state'
+            }));
+
+            // Re-enable buttons after a delay
+            setTimeout(() => {
+                document.getElementById('orderbookBtn').disabled = false;
+                document.getElementById('adlBtn').disabled = false;
+                document.getElementById('forceBtn').disabled = false;
+                document.getElementById('resetBtn').disabled = false;
+                document.getElementById('liquidationStatus').textContent = 'Ready for liquidation operations';
+            }, 1000);
         }
 
         // --- Event Listeners ---
