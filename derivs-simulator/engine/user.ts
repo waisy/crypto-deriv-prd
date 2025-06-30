@@ -58,6 +58,23 @@ export class User {
     this.unrealizedPnL = new Decimal(unrealizedPnL);
   }
 
+  // New method to handle P&L realization
+  realizePnL(realizedAmount: number | string | Decimal): void {
+    const decAmount = new Decimal(realizedAmount);
+    this.availableBalance = this.availableBalance.plus(decAmount);
+    this.totalPnL = this.totalPnL.plus(decAmount);
+  }
+
+  // New method to release margin back to available balance
+  releaseMargin(marginAmount: number | string | Decimal): void {
+    const decAmount = new Decimal(marginAmount);
+    if (decAmount.greaterThan(this.usedMargin)) {
+      throw new Error('Cannot release more margin than currently used');
+    }
+    this.usedMargin = this.usedMargin.minus(decAmount);
+    this.availableBalance = this.availableBalance.plus(decAmount);
+  }
+
   getMarginRatio(): Decimal | null {
     if (this.usedMargin.isZero()) return null;
     return this.availableBalance.plus(this.unrealizedPnL).dividedBy(this.usedMargin).times(100);

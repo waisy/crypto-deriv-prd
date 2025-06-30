@@ -428,30 +428,92 @@ class Exchange {
         currentPositionSize: position.size.toString()
       });
       
-      // Calculate margin impact before adding trade
+      // Calculate position impact before adding trade
+      const oldSize = position.size;
+      const oldSide = position.side;
       const oldMargin = position.initialMargin;
+      const oldUnrealizedPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
+      
+      // Determine if this trade reduces the position
+      const isReducingTrade = oldSide && !trade.wouldIncrease(oldSide);
       
       // Add the trade to position
       position.addTrade(trade);
       
-      // Update user margin based on new position size
+      // Calculate new position state  
+      const newSize = position.size;
       const newMargin = position.initialMargin;
       const marginDelta = newMargin.minus(oldMargin);
       
-      user.usedMargin = user.usedMargin.plus(marginDelta);
+      if (isReducingTrade && !oldSize.isZero()) {
+        // PROPORTIONAL P&L REALIZATION for position reduction
+        let realizedPnL = new Decimal(0);
+        let marginReleased = new Decimal(0);
+        
+        if (newSize.isZero()) {
+          // Full position closure - realize all P&L and release all margin
+          realizedPnL = oldUnrealizedPnL;
+          marginReleased = oldMargin;
+          
+          this.log('INFO', `💰 FULL POSITION CLOSURE - P&L REALIZATION`, {
+            userId,
+            realizedPnL: realizedPnL.toString(),
+            marginReleased: marginReleased.toString()
+          });
+        } else {
+          // Partial position reduction - proportional realization
+          const reductionSize = oldSize.minus(newSize);
+          const reductionRatio = reductionSize.dividedBy(oldSize);
+          
+          realizedPnL = oldUnrealizedPnL.times(reductionRatio);
+          marginReleased = oldMargin.times(reductionRatio);
+          
+          this.log('INFO', `💰 PARTIAL POSITION REDUCTION - P&L REALIZATION`, {
+            userId,
+            oldSize: oldSize.toString(),
+            newSize: newSize.toString(),
+            reductionRatio: reductionRatio.toString(),
+            realizedPnL: realizedPnL.toString(),
+            marginReleased: marginReleased.toString()
+          });
+        }
+        
+                 // Apply P&L realization to user balance
+         user.realizePnL(realizedPnL);
+         
+         // Release margin back to available balance
+         user.releaseMargin(marginReleased);
+        
+        this.log('INFO', `✅ P&L REALIZED AND MARGIN RELEASED`, {
+          userId,
+          realizedPnL: realizedPnL.toString(),
+          marginReleased: marginReleased.toString(),
+          newAvailableBalance: user.availableBalance.toString(),
+          newUsedMargin: user.usedMargin.toString(),
+          newTotalPnL: user.totalPnL.toString()
+        });
+        
+      } else {
+        // Position increase or same size - normal margin adjustment
+        user.usedMargin = user.usedMargin.plus(marginDelta);
+        
+        this.log('DEBUG', `Position increased/maintained`, {
+          marginDelta: marginDelta.toString(),
+          userUsedMargin: user.usedMargin.toString()
+        });
+      }
       
       this.log('DEBUG', `Trade added to position`, {
         newPositionSize: position.size.toString(),
         newPositionSide: position.side,
-        marginDelta: marginDelta.toString(),
+        userAvailableBalance: user.availableBalance.toString(),
         userUsedMargin: user.usedMargin.toString()
       });
       
       // If position is closed (size = 0), remove it
       if (position.size.isZero()) {
-        this.log('INFO', `✅ POSITION CLOSED`, {
-          userId,
-          finalMargin: newMargin.toString()
+        this.log('INFO', `✅ POSITION CLOSED AND REMOVED`, {
+          userId
         });
         this.positions.delete(positionKey);
       }
