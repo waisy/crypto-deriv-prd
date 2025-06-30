@@ -46,10 +46,6 @@ export class LiquidationEngine {
     const decCurrentPrice = new Decimal(currentPrice);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
     
-    // NO LIQUIDATION FEE DURING POSITION TRANSFER:
-    // Position is simply transferred to liquidation engine at bankruptcy price
-    // Any price differences will be handled during actual liquidation (ADL/orderbook)
-    
     // Calculate pre-liquidation loss
     const preLiquidationPnL = position.calculateUnrealizedPnL(decCurrentPrice);
     const preLiquidationLoss = preLiquidationPnL.isNegative() ? preLiquidationPnL.abs() : new Decimal(0);
