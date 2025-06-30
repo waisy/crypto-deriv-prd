@@ -1,0 +1,167 @@
+# Cursor Rules for Derivatives Exchange Simulator
+
+## 🐛 DEBUGGING BEST PRACTICES
+
+### **ALWAYS FOLLOW THIS DEBUGGING METHODOLOGY:**
+
+1. **ISSUE IDENTIFICATION**
+   - Start with clear symptom description
+   - Formulate specific hypothesis about root cause
+   - Identify expected vs actual behavior
+   - Document the exact failure scenario
+
+2. **MINIMAL REPRODUCTION**
+   - Create isolated test case that reproduces the issue
+   - Remove unnecessary complexity to focus on core problem
+   - Use simple, deterministic test data
+   - Ensure test is repeatable and reliable
+
+3. **ENHANCED LOGGING STRATEGY**
+   - Add detailed logging before and after critical operations
+   - Track balance changes at each step
+   - Log input parameters and output results
+   - Include user IDs, amounts, and timestamps in logs
+   - Use structured logging with clear labels
+
+4. **BALANCE CONSERVATION CHECKS**
+   - **CRITICAL**: Always verify zero-sum principles
+   - Track system total before and after operations
+   - Ensure P&L realization doesn't create/destroy money
+   - Validate margin calculations are accurate
+   - Check that position changes balance correctly
+
+5. **INCREMENTAL DEBUGGING**
+   - Test one change at a time
+   - Verify each step before proceeding
+   - Use server-side logs to trace execution flow
+   - Compare expected vs actual values at each stage
+
+6. **ROOT CAUSE ANALYSIS**
+   - Look beyond symptoms to underlying logic errors
+   - Check for double-counting, missing operations, or incorrect calculations
+   - Verify data flow between components
+   - Test edge cases and boundary conditions
+
+### **SPECIFIC DEBUGGING PATTERNS**
+
+#### **For P&L Issues:**
+- Always verify unrealized P&L sums to zero across all positions
+- Check that realized P&L changes balance correctly
+- Ensure margin release matches position reduction
+- Validate proportional calculations are accurate
+
+#### **For Balance Issues:**
+- Track total system balance (users + insurance fund)
+- Verify available + used margin = total balance for each user
+- Check that order placement doesn't incorrectly reserve margin
+- Ensure trades don't create or destroy money
+
+#### **For Order/Position Issues:**
+- Log position state before and after each trade
+- Verify position size and side calculations
+- Check margin requirements for different order types
+- Validate position-reducing vs position-increasing logic
+
+### **DEBUGGING TOOLS & TECHNIQUES**
+
+1. **Create Minimal Test Scripts**
+   ```javascript
+   // Always create focused test scripts like:
+   // test-simple-[issue-name].js
+   // test-[component]-debug.js
+   ```
+
+2. **Enhanced Server Logging**
+   ```javascript
+   this.log('INFO', `🔍 DEBUG: [operation]`, {
+     userId,
+     before: { balance, margin, pnl },
+     after: { balance, margin, pnl },
+     change: { balance, margin, pnl }
+   });
+   ```
+
+3. **Balance Verification**
+   ```javascript
+   const systemTotal = userBalances + insuranceFund;
+   console.log(`🎯 SYSTEM TOTAL: $${systemTotal} (should be constant)`);
+   ```
+
+4. **Step-by-Step Validation**
+   ```javascript
+   // Before each critical operation
+   console.log(`📊 BEFORE [operation]:`, state);
+   
+   // After each critical operation  
+   console.log(`📊 AFTER [operation]:`, state);
+   
+   // Verify expected changes
+   console.log(`✅ VERIFICATION:`, expected, '==', actual);
+   ```
+
+### **COMMON PITFALLS TO AVOID**
+
+1. **Don't assume the obvious** - always verify with logging
+2. **Don't skip balance conservation checks** - this catches most bugs
+3. **Don't debug without minimal reproduction** - complex scenarios hide issues
+4. **Don't ignore server-side logs** - client-side only shows symptoms
+5. **Don't fix symptoms instead of root causes** - understand the underlying logic
+
+### **VALIDATION CHECKLIST**
+
+Before considering an issue "fixed":
+- [ ] Minimal test case passes
+- [ ] Balance conservation maintained
+- [ ] Zero-sum principles verified
+- [ ] Server logs show correct flow
+- [ ] Edge cases tested
+- [ ] No regression in existing functionality
+
+### **DOCUMENTATION REQUIREMENTS**
+
+When debugging, always document:
+1. **Issue description** with exact symptoms
+2. **Root cause analysis** with evidence
+3. **Fix implementation** with rationale
+4. **Verification results** with test outcomes
+5. **Lessons learned** for future debugging
+
+### **EMERGENCY DEBUGGING COMMANDS**
+
+```bash
+# Kill existing server processes
+pkill -f "ts-node.*server.js" || pkill -f "node.*server.js"
+
+# Start server with visible output
+npm start &
+
+# Run specific debug test
+node test-simple-[issue].js
+
+# Run full test suite
+npm run e2e:all
+
+# Check for port conflicts
+lsof -i :3000
+```
+
+### **CRITICAL REMINDERS**
+
+- **P&L realization MUST be zero-sum** - Bob +$500, Eve -$500, system change $0
+- **Margin calculations MUST be accurate** - no double-counting or missing amounts
+- **Position changes MUST balance** - long and short quantities must match
+- **System total MUST be conserved** - money cannot be created or destroyed
+- **Always test with simple scenarios first** - complex cases hide simple bugs
+
+### **WHEN TO ESCALATE**
+
+If debugging takes more than 3 iterations:
+1. Re-examine the hypothesis
+2. Create even simpler test case
+3. Add more detailed logging
+4. Consider if the issue is in a different component
+5. Document all findings for team review
+
+---
+
+**Remember: Good debugging is systematic, not guesswork. Follow the process, trust the logs, and verify everything.** 
