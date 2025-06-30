@@ -483,21 +483,39 @@ class LiquidationTransferTest {
         'long'
       );
 
-      // Test 8: System balance properly accounts for margin loss
+      // Test 8: System balance conservation (margin goes to Insurance Fund)
       const expectedMarginLoss = 5000; // Eve's margin at 10x leverage on $50k position
-      const expectedFinalTotal = initialTotal - expectedMarginLoss;
+      const initialInsuranceFund = 0; // We reset it to zero at the start
+      const finalInsuranceFund = parseFloat(finalState.state.insuranceFund.balance);
+      const expectedFinalTotal = initialTotal; // System total should be conserved
       const balanceDiff = Math.abs(finalTotal - expectedFinalTotal);
       
       console.log(`   Initial Total: $${initialTotal}`);
-      console.log(`   Expected Margin Loss: $${expectedMarginLoss}`);
-      console.log(`   Expected Final Total: $${expectedFinalTotal}`);
+      console.log(`   Initial Insurance Fund: $${initialInsuranceFund}`);
+      console.log(`   Final Insurance Fund: $${finalInsuranceFund}`);
+      console.log(`   Expected Final Total: $${expectedFinalTotal} (conserved)`);
       console.log(`   Actual Final Total: $${finalTotal}`);
       console.log(`   Difference: $${balanceDiff}`);
       
       this.assert(
         balanceDiff < 10,
-        'System balance properly accounts for liquidation margin loss',
+        'System total conserved (margin transferred to Insurance Fund)',
         `$${balanceDiff} difference`,
+        '< $10 tolerance'
+      );
+      
+      // Test 8b: Insurance Fund received the margin loss
+      const insuranceFundIncrease = finalInsuranceFund - initialInsuranceFund;
+      const marginTransferDiff = Math.abs(insuranceFundIncrease - expectedMarginLoss);
+      
+      console.log(`   Insurance Fund increase: $${insuranceFundIncrease}`);
+      console.log(`   Expected margin transfer: $${expectedMarginLoss}`);
+      console.log(`   Transfer difference: $${marginTransferDiff}`);
+      
+      this.assert(
+        marginTransferDiff < 10,
+        'Insurance Fund received the lost margin',
+        `$${marginTransferDiff} difference`,
         '< $10 tolerance'
       );
 

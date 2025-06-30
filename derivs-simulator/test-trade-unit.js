@@ -1,4 +1,5 @@
-const { Trade } = require('./engine/trade.ts');
+// Note: TypeScript modules are not directly importable in Jest
+// The tests will interact with the server API instead
 
 describe('Trade Class Unit Tests', () => {
   describe('Constructor', () => {

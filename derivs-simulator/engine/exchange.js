@@ -1404,6 +1404,8 @@ class Exchange {
       userOrders: this.orderBook.getOrdersByUser(),
       adlQueue: this.adlEngine.getQueue(this.positions, this.users, this.currentMarkPrice),
       marginCalls: this.marginMonitor.getActiveMarginCalls(),
+      // Add liquidationPositions for backward compatibility with tests
+      liquidationPositions: this.positionLiquidationEngine.getPositionsWithPnL(this.currentMarkPrice),
       positionLiquidationEngine: {
         positions: this.positionLiquidationEngine.getPositionsWithPnL(this.currentMarkPrice),
         summary: this.positionLiquidationEngine.getSummary(this.currentMarkPrice),

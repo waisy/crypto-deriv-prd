@@ -314,8 +314,6 @@ export class Position {
     return this.size.times(new Decimal(currentPrice));
   }
 
-
-
   getRoE(currentPrice: number | string | Decimal | null = null): Decimal {
     if (this.initialMargin.isZero() || this.initialMargin === null || this.initialMargin === undefined) {
       return new Decimal(0);
@@ -411,36 +409,35 @@ export class LiquidationPosition extends Position {
   public lastAttemptTime: number | null;
 
   constructor(originalPosition: Position, bankruptcyPrice: number | string | Decimal, userId: string, liquidationId: string) {
-    // For liquidation engine to inherit the same position side, it needs to do the SAME trade side
-    // If original was long (net buy), liquidation engine does buy to be long
-    // If original was short (net sell), liquidation engine does sell to be short
-    const tradeSide: TradeSide = originalPosition.side === 'long' ? 'buy' : 'sell';
+    // Create a copy of the original position but with liquidation engine as owner
+    // We need to preserve all original position properties for inheritance
+    super(userId, originalPosition.leverage);
     
-    // Create initial trade at bankruptcy price to represent position transfer
-    const initialTrade = new Trade(userId, tradeSide, originalPosition.size, bankruptcyPrice, {
-      tradeType: 'liquidation' as TradeType,
-      counterparty: originalPosition.userId
-    });
-    
-    super(userId, 1, initialTrade); // Leverage 1 for liquidation engine
+    // Copy all trades from original position to maintain calculation consistency
+    for (const trade of originalPosition.trades) {
+      const copiedTrade = new Trade(
+        userId, // Change owner to liquidation engine
+        trade.side,
+        trade.size,
+        trade.price,
+        {
+          tradeType: 'liquidation' as TradeType,
+          counterparty: originalPosition.userId,
+          timestamp: trade.timestamp
+        }
+      );
+      this.addTrade(copiedTrade);
+    }
     
     // Liquidation-specific properties
-    this.id = liquidationId; // ID managed by the liquidation engine
+    this.id = liquidationId;
     this.originalUserId = originalPosition.userId;
-    this.originalPositionId = originalPosition.userId; // Fallback for positions without id
+    this.originalPositionId = originalPosition.userId;
     this.bankruptcyPrice = new Decimal(bankruptcyPrice);
     this.originalEntryPrice = new Decimal(originalPosition.avgEntryPrice);
     this.transferTime = Date.now();
     this.status = 'pending';
     this.attempts = 0;
     this.lastAttemptTime = null;
-  }
-  
-  /**
-   * Override avgEntryPrice to use original entry price for PnL calculations
-   * The bankruptcy price trade is just for transfer mechanics
-   */
-  get avgEntryPrice(): Decimal {
-    return this.originalEntryPrice;
   }
 } 
