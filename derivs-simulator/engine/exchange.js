@@ -851,23 +851,34 @@ class Exchange {
             user.usedMargin = user.usedMargin.minus(marginAmount);
             user.availableBalance = user.availableBalance.plus(remainingMargin);
             
+            // Transfer the lost portion to Insurance Fund
+            const marginLost = marginAmount.minus(remainingMargin);
+            if (marginLost.greaterThan(0)) {
+              this.liquidationEngine.manualAdjustment(marginLost, `Partial liquidation margin loss from ${userId}`);
+            }
+            
             this.log('INFO', `💰 PARTIAL MARGIN RETURN to ${userId}`, {
               marginReturned: remainingMargin.toString(),
-              marginLost: marginAmount.minus(remainingMargin).toString(),
+              marginLost: marginLost.toString(),
               newUsedMargin: user.usedMargin.toString(),
-              newAvailableBalance: user.availableBalance.toString()
+              newAvailableBalance: user.availableBalance.toString(),
+              insuranceFundTransfer: marginLost.toString()
             });
           } else {
             // User lost entire margin (isolated margin max loss)
             user.usedMargin = user.usedMargin.minus(marginAmount);
             // Available balance stays the same - user only loses the margin that was already reserved
             
+            // CRITICAL FIX: Transfer lost margin to Insurance Fund to maintain zero-sum
+            this.liquidationEngine.manualAdjustment(marginAmount, `Liquidation margin loss from ${userId}`);
+            
             this.log('INFO', `💸 MARGIN LOST in liquidation (isolated margin max loss)`, {
               userId,
               marginLost: marginAmount.toString(),
               newUsedMargin: user.usedMargin.toString(),
               availableBalance: user.availableBalance.toString(),
-              note: 'Available balance unchanged - margin was already reserved'
+              insuranceFundTransfer: marginAmount.toString(),
+              note: 'Lost margin transferred to Insurance Fund - zero-sum maintained'
             });
           }
         }
@@ -979,12 +990,16 @@ class Exchange {
       user.usedMargin = user.usedMargin.minus(marginAmount);
       // Available balance stays the same - margin was already reserved
       
+      // CRITICAL FIX: Transfer lost margin to Insurance Fund to maintain zero-sum
+      this.liquidationEngine.manualAdjustment(marginAmount, `Manual liquidation margin loss from ${userId}`);
+      
       this.log('INFO', `💸 MARGIN LOST in manual liquidation (isolated margin max loss)`, {
         userId,
         marginLost: marginAmount.toString(),
         newUsedMargin: user.usedMargin.toString(),
         availableBalance: user.availableBalance.toString(),
-        note: 'Available balance unchanged - margin was already reserved'
+        insuranceFundTransfer: marginAmount.toString(),
+        note: 'Lost margin transferred to Insurance Fund - zero-sum maintained'
       });
     }
     

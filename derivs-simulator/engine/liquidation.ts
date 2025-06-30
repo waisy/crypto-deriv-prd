@@ -2,7 +2,6 @@ import { Decimal } from "decimal.js";
 import { Position } from "./position";
 
 export class LiquidationEngine {
-  public liquidationFeeRate: Decimal;
   public insuranceFund: Decimal;
   public matchingEngine: any;
   public orderBook: any;
@@ -14,7 +13,6 @@ export class LiquidationEngine {
   public liquidationHistory: any[];
 
   constructor(matchingEngine?: any, orderBook?: any, marginCalculator?: any, adlEngine?: any) {
-    this.liquidationFeeRate = new Decimal(0.005);
     this.insuranceFund = new Decimal(1000000);
     this.matchingEngine = matchingEngine || null;
     this.orderBook = orderBook || null;
@@ -46,8 +44,14 @@ export class LiquidationEngine {
 
   async liquidate(position: Position, currentPrice: any, allPositions: Map<string, Position>, forceMode: boolean = false): Promise<any> {
     const decCurrentPrice = new Decimal(currentPrice);
-    const liquidationFee = position.calculateLiquidationFee(decCurrentPrice, this.liquidationFeeRate);
     const bankruptcyPrice = this.calculateBankruptcyPrice(position);
+    
+    // CORRECT LIQUIDATION FEE CALCULATION:
+    // Fee is the difference between current price and bankruptcy price
+    // If current price > bankruptcy price: positive fee to Insurance Fund
+    // If current price < bankruptcy price: negative fee (Insurance Fund pays)
+    const priceDifference = decCurrentPrice.minus(bankruptcyPrice);
+    let liquidationFee = priceDifference.times(position.size);
     
     // Calculate pre-liquidation loss
     const preLiquidationPnL = position.calculateUnrealizedPnL(decCurrentPrice);
@@ -87,6 +91,10 @@ export class LiquidationEngine {
           executionPrice = liquidationOrder.avgFillPrice;
           fills = matchResults;
           totalExecuted = liquidationOrder.filledSize;
+          
+          // Recalculate liquidation fee based on actual execution price
+          const actualPriceDifference = executionPrice.minus(bankruptcyPrice);
+          liquidationFee = actualPriceDifference.times(totalExecuted);
         }
       } catch (error) {
         console.log('Order book liquidation failed, falling back to bankruptcy price');  

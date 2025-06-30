@@ -99,7 +99,8 @@ class ADLBalanceConservationTest {
       let state = stateResponse.state;
       const initialBobBalance = parseFloat(state.users.find(u => u.id === 'bob').totalBalance);
       const initialEveBalance = parseFloat(state.users.find(u => u.id === 'eve').totalBalance);
-      const initialSystemTotal = initialBobBalance + initialEveBalance + parseFloat(state.users.find(u => u.id === 'alice').totalBalance);
+      const initialInsuranceFund = parseFloat(state.insuranceFund.balance);
+      const initialSystemTotal = initialBobBalance + initialEveBalance + parseFloat(state.users.find(u => u.id === 'alice').totalBalance) + initialInsuranceFund;
       
       console.log(`   Initial balances: Bob=$${initialBobBalance}, Eve=$${initialEveBalance}`);
       console.log(`   Initial system total: $${initialSystemTotal}`);
@@ -153,9 +154,10 @@ class ADLBalanceConservationTest {
       // Record balances before ADL
       const bobBalanceBeforeADL = parseFloat(state.users.find(u => u.id === 'bob').totalBalance);
       const eveBalanceBeforeADL = parseFloat(state.users.find(u => u.id === 'eve').totalBalance);
-      const systemTotalBeforeADL = bobBalanceBeforeADL + eveBalanceBeforeADL + parseFloat(state.users.find(u => u.id === 'alice').totalBalance);
+      const insuranceFundBeforeADL = parseFloat(state.insuranceFund.balance);
+      const systemTotalBeforeADL = bobBalanceBeforeADL + eveBalanceBeforeADL + parseFloat(state.users.find(u => u.id === 'alice').totalBalance) + insuranceFundBeforeADL;
       
-      console.log(`   Before ADL: Bob=$${bobBalanceBeforeADL}, Eve=$${eveBalanceBeforeADL}`);
+      console.log(`   Before ADL: Bob=$${bobBalanceBeforeADL}, Eve=$${eveBalanceBeforeADL}, Insurance Fund=$${insuranceFundBeforeADL}`);
       console.log(`   System total before ADL: $${systemTotalBeforeADL}`);
 
       // Step 4: Execute ADL
@@ -171,9 +173,10 @@ class ADLBalanceConservationTest {
       
       const bobBalanceAfterADL = parseFloat(state.users.find(u => u.id === 'bob').totalBalance);
       const eveBalanceAfterADL = parseFloat(state.users.find(u => u.id === 'eve').totalBalance);
-      const systemTotalAfterADL = bobBalanceAfterADL + eveBalanceAfterADL + parseFloat(state.users.find(u => u.id === 'alice').totalBalance);
+      const insuranceFundAfterADL = parseFloat(state.insuranceFund.balance);
+      const systemTotalAfterADL = bobBalanceAfterADL + eveBalanceAfterADL + parseFloat(state.users.find(u => u.id === 'alice').totalBalance) + insuranceFundAfterADL;
       
-      console.log(`   After ADL: Bob=$${bobBalanceAfterADL}, Eve=$${eveBalanceAfterADL}`);
+      console.log(`   After ADL: Bob=$${bobBalanceAfterADL}, Eve=$${eveBalanceAfterADL}, Insurance Fund=$${insuranceFundAfterADL}`);
       console.log(`   System total after ADL: $${systemTotalAfterADL}`);
 
       // Step 5: Critical ADL balance conservation checks
@@ -223,6 +226,7 @@ class ADLBalanceConservationTest {
       console.log('\n📊 DETAILED BALANCE ANALYSIS:');
       console.log(`   Bob: $${initialBobBalance} → $${bobBalanceAfterADL} (${bobBalanceAfterADL > initialBobBalance ? '+' : ''}${(bobBalanceAfterADL - initialBobBalance).toFixed(2)})`);
       console.log(`   Eve: $${initialEveBalance} → $${eveBalanceAfterADL} (${eveBalanceAfterADL > initialEveBalance ? '+' : ''}${(eveBalanceAfterADL - initialEveBalance).toFixed(2)})`);
+      console.log(`   Insurance Fund: $${initialInsuranceFund} → $${insuranceFundAfterADL} (${insuranceFundAfterADL > initialInsuranceFund ? '+' : ''}${(insuranceFundAfterADL - initialInsuranceFund).toFixed(2)})`);
       console.log(`   System: $${initialSystemTotal} → $${systemTotalAfterADL} (${systemTotalAfterADL > initialSystemTotal ? '+' : ''}${totalSystemChange.toFixed(2)})`);
 
     } catch (error) {
