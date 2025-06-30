@@ -366,21 +366,7 @@
             <div class="panel center-panel">
                 <div class="orderbook-section">
                     <h3>Order Book <span class="orderbook-hint">Click to trade</span></h3>
-                    <div class="orderbook-mini">
-                        <div class="asks" id="asks">
-                            <h4>Asks</h4>
-                            <div class="no-orders">No sell orders</div>
-                        </div>
-                        
-                        <div class="spread-mini" id="spread">
-                            Spread: -
-                        </div>
-                        
-                        <div class="bids" id="bids">
-                            <h4>Bids</h4>
-                            <div class="no-orders">No buy orders</div>
-                        </div>
-                    </div>
+                    <div class="orderbook-ladder" id="orderbookLadder"></div>
                 </div>
 
                 <div class="position-section">
@@ -762,58 +748,110 @@
             // Clean price data before creating Decimals
             const cleanMarkPrice = typeof state.markPrice === 'string' ? 
                 state.markPrice.replace(/[^0-9.-]/g, '') : state.markPrice;
-            document.getElementById('markPrice').textContent = `$${new Decimal(cleanMarkPrice || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            
+            const markPriceEl = document.getElementById('markPrice');
+            if (markPriceEl) {
+                markPriceEl.textContent = `$${new Decimal(cleanMarkPrice || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            }
+            // Only update spread if it exists
             const spread = state.orderBook.spread;
-            if (spread) {
-                const cleanSpread = typeof spread === 'string' ? 
-                    spread.replace(/[^0-9.-]/g, '') : spread;
-                document.getElementById('spread').textContent = `Spread: $${new Decimal(cleanSpread || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            } else {
-                document.getElementById('spread').textContent = 'Spread: -';
+            const spreadEl = document.getElementById('spread');
+            if (spreadEl) {
+                if (spread) {
+                    const cleanSpread = typeof spread === 'string' ? 
+                        spread.replace(/[^0-9.-]/g, '') : spread;
+                    spreadEl.textContent = `Spread: $${new Decimal(cleanSpread || 0).toDP(2).toNumber().toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                } else {
+                    spreadEl.textContent = 'Spread: -';
+                }
             }
         }
 
         function updateOrderBook() {
-            const asksContainer = document.getElementById('asks');
-            const bidsContainer = document.getElementById('bids');
+            const ladder = document.getElementById('orderbookLadder');
             const orderBook = state.orderBook;
-            
-            asksContainer.innerHTML = '<h4>Asks</h4>';
-            bidsContainer.innerHTML = '<h4>Bids</h4>';
-            
-            if (orderBook.asks.length === 0) {
-                asksContainer.innerHTML += '<div class="no-orders">No sell orders</div>';
-            } else {
-                orderBook.asks.forEach(level => {
-                    const el = document.createElement('div');
-                    el.className = 'order-level ask clickable';
-                    el.innerHTML = `<span class="price">$${formatPrice(level.price)}</span> <span class="size">${formatBTCAmount(level.size)}</span>`;
-                    el.onclick = () => { 
-                        // Click on ASK = BUY to aggress it
-                        setSide('buy');
-                        setPrice(level.price);
-                        setSize(level.size);
-                    };
-                    asksContainer.appendChild(el);
+            ladder.innerHTML = '';
+
+            // Header row
+            const header = document.createElement('div');
+            header.className = 'orderbook-ladder-header';
+            header.innerHTML = '<div style="display: flex; width: 100%"><div style="flex:1;text-align:right;">Bids</div><div style="flex:1;text-align:center;">Price</div><div style="flex:1;text-align:left;">Asks</div></div>';
+            ladder.appendChild(header);
+
+            // Prepare price levels (merge bids/asks by price)
+            const bids = (orderBook.bids || []).sort((a, b) => b.price - a.price);
+            const asks = (orderBook.asks || []).sort((a, b) => a.price - b.price);
+
+            // Determine how many levels to show
+            let numBids = Math.min(3, bids.length);
+            let numAsks = Math.min(3, asks.length);
+            let total = numBids + numAsks;
+            // If less than 6, fill up to 6, but never more than 5 from one side
+            if (total < 6) {
+                if (bids.length > numBids) {
+                    let add = Math.min(6 - total, bids.length - numBids, 5 - numBids);
+                    numBids += add;
+                    total = numBids + numAsks;
+                }
+                if (total < 6 && asks.length > numAsks) {
+                    let add = Math.min(6 - total, asks.length - numAsks, 5 - numAsks);
+                    numAsks += add;
+                }
+            }
+            // Now slice the arrays
+            const showBids = bids.slice(0, numBids);
+            const showAsks = asks.slice(0, numAsks);
+            // Merge price levels for display, best prices at center
+            const priceLevels = [];
+            // Asks (lowest first)
+            for (let i = showAsks.length - 1; i >= 0; i--) {
+                priceLevels.push({
+                    price: showAsks[i].price,
+                    bid: null,
+                    ask: showAsks[i]
                 });
             }
-
-            if (orderBook.bids.length === 0) {
-                bidsContainer.innerHTML += '<div class="no-orders">No buy orders</div>';
-            } else {
-                orderBook.bids.forEach(level => {
-                    const el = document.createElement('div');
-                    el.className = 'order-level bid clickable';
-                    el.innerHTML = `<span class="price">$${formatPrice(level.price)}</span> <span class="size">${formatBTCAmount(level.size)}</span>`;
-                    el.onclick = () => {
-                        // Click on BID = SELL to aggress it
-                        setSide('sell');
-                        setPrice(level.price);
-                        setSize(level.size);
-                    };
-                    bidsContainer.appendChild(el);
-                });
+            // Bids (highest first)
+            for (let i = 0; i < showBids.length; i++) {
+                // If this price already exists (overlap), merge
+                let idx = priceLevels.findIndex(lvl => lvl.price == showBids[i].price);
+                if (idx !== -1) {
+                    priceLevels[idx].bid = showBids[i];
+                } else {
+                    priceLevels.push({
+                        price: showBids[i].price,
+                        bid: showBids[i],
+                        ask: null
+                    });
+                }
+            }
+            // Sort descending by price (best prices at center)
+            priceLevels.sort((a, b) => b.price - a.price);
+            // Show up to 6 levels
+            priceLevels.slice(0, 6).forEach(level => {
+                const row = document.createElement('div');
+                row.className = 'orderbook-ladder-row';
+                // Bid cell
+                if (level.bid) {
+                    row.innerHTML += `<div class="bid-cell clickable" title="Click to sell at $${formatPrice(level.price)}" onclick="setSide('sell');setPrice(${level.price});setSize(${level.bid.size});">${formatBTCAmount(level.bid.size)}</div>`;
+                } else {
+                    row.innerHTML += '<div class="bid-cell empty-cell"></div>';
+                }
+                // Price cell
+                row.innerHTML += `<div class="price-cell">$${formatPrice(level.price)}</div>`;
+                // Ask cell
+                if (level.ask) {
+                    row.innerHTML += `<div class="ask-cell clickable" title="Click to buy at $${formatPrice(level.price)}" onclick="setSide('buy');setPrice(${level.price});setSize(${level.ask.size});">${formatBTCAmount(level.ask.size)}</div>`;
+                } else {
+                    row.innerHTML += '<div class="ask-cell empty-cell"></div>';
+                }
+                ladder.appendChild(row);
+            });
+            // If no levels, show message
+            if (priceLevels.length === 0) {
+                const row = document.createElement('div');
+                row.className = 'orderbook-ladder-row';
+                row.innerHTML = '<div class="bid-cell empty-cell"></div><div class="price-cell">No orders</div><div class="ask-cell empty-cell"></div>';
+                ladder.appendChild(row);
             }
         }
 
