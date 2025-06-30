@@ -20,6 +20,7 @@
     "e2e": "node e2e-tests/01-basic-order-trade.js",
     "e2e:liquidation": "node e2e-tests/02-liquidation-transfer.js",
     "e2e:pnl": "node e2e-tests/03-pnl-realization.js",
+    "e2e:adl": "node e2e-tests/04-adl-balance-conservation.js",
     "e2e:clean": "node e2e-tests/run-tests.js",
     "e2e:all": "for file in e2e-tests/*.js; do echo \"Running $file...\"; node \"$file\"; done",
     "test:all": "npm test && npm run e2e:clean"
