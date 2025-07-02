@@ -301,11 +301,12 @@ class Exchange {
     // Reserve margin only if required
     if (marginReq.greaterThan(0)) {
       user.availableBalance = user.availableBalance.minus(marginReq);
-      
+      user.usedMargin = user.usedMargin.plus(marginReq);
       this.log('INFO', `💰 MARGIN RESERVED`, {
         userId,
         marginReserved: marginReq.toString(),
-        newAvailableBalance: user.availableBalance.toString()
+        newAvailableBalance: user.availableBalance.toString(),
+        newUsedMargin: user.usedMargin.toString()
       });
     }
     
@@ -491,15 +492,13 @@ class Exchange {
       position = new Position(userId, trade.leverage, trade);
       this.positions.set(positionKey, position);
       
-      // Update user margin for new position
-      const reservedMargin = position.initialMargin;
-      user.usedMargin = user.usedMargin.plus(reservedMargin);
-      
+      // Margin was already reserved during order placement - don't double-count
       this.log('DEBUG', `Position created successfully`, {
         positionSize: position.size.toString(),
         positionSide: position.side,
-        reservedMargin: reservedMargin.toString(),
-        userUsedMargin: user.usedMargin.toString()
+        reservedMargin: position.initialMargin.toString(),
+        userUsedMargin: user.usedMargin.toString(),
+        note: 'Margin already reserved at order placement'
       });
     } else {
       this.log('INFO', `📊 ADDING TRADE TO EXISTING POSITION`, {
@@ -602,12 +601,11 @@ class Exchange {
         }
         
       } else {
-        // Position increase or same size - normal margin adjustment
-        user.usedMargin = user.usedMargin.plus(marginDelta);
-        
+        // Position increase or same size - margin already handled at order placement
         this.log('DEBUG', `Position increased/maintained`, {
           marginDelta: marginDelta.toString(),
-          userUsedMargin: user.usedMargin.toString()
+          userUsedMargin: user.usedMargin.toString(),
+          note: 'Margin already reserved at order placement'
         });
       }
       
