@@ -354,15 +354,38 @@ class Exchange {
 
   cancelOrder(data) {
     const { orderId } = data;
-    
+    // Look up the order before removal
+    const order = this.orderBook.orders.get(orderId);
+    if (!order) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+    // Refund margin if reserved
+    if (order.marginReserved && order.marginReserved.greaterThan(0)) {
+      const user = this.users.get(order.userId);
+      if (user) {
+        user.availableBalance = user.availableBalance.plus(order.marginReserved);
+        // Ensure usedMargin doesn't go negative
+        const newUsedMargin = user.usedMargin.minus(order.marginReserved);
+        user.usedMargin = newUsedMargin.greaterThanOrEqualTo(0) ? newUsedMargin : new Decimal(0);
+        
+        this.log('INFO', `💸 MARGIN REFUNDED ON CANCEL`, {
+          userId: order.userId,
+          marginRefunded: order.marginReserved.toString(),
+          newAvailableBalance: user.availableBalance.toString(),
+          newUsedMargin: user.usedMargin.toString()
+        });
+      }
+    }
+    // Remove the order
     const success = this.orderBook.removeOrder(orderId);
-    
     if (!success) {
       throw new Error(`Order ${orderId} not found`);
     }
-
+    
+    // Update all user unrealized P&L to ensure equity is recalculated
+    this.updateAllUserUnrealizedPnL();
+    
     console.log(`Order ${orderId} cancelled`);
-
     return {
       success: true,
       orderId,
