@@ -151,10 +151,18 @@ export class OrderBook {
     const bestBidOrder = this.getBestBid();
     const bestAskOrder = this.getBestAsk();
     
+    // Count only active orders (not filled or cancelled)
+    let activeOrderCount = 0;
+    this.orders.forEach(order => {
+      if (order.status !== 'FILLED' && order.status !== 'CANCELLED' && order.status !== 'filled' && order.status !== 'cancelled') {
+        activeOrderCount++;
+      }
+    });
+    
     return {
       bids: this.getBidLevels(),
       asks: this.getAskLevels(),
-      totalOrders: this.orders.size,
+      totalOrders: activeOrderCount,
       bestBid: bestBidOrder ? bestBidOrder.price.toString() : null,
       bestAsk: bestAskOrder ? bestAskOrder.price.toString() : null,
       spread: this.getSpread()
@@ -172,7 +180,7 @@ export class OrderBook {
   getUserOrders(userId: string): Order[] {
     const userOrders: Order[] = [];
     this.orders.forEach(order => {
-      if (order.userId === userId) {
+      if (order.userId === userId && order.status !== 'FILLED' && order.status !== 'CANCELLED' && order.status !== 'filled' && order.status !== 'cancelled') {
         userOrders.push(order);
       }
     });
@@ -182,11 +190,14 @@ export class OrderBook {
   getOrdersByUser(): OrdersByUser {
     const userOrders: OrdersByUser = {};
     this.orders.forEach(order => {
-      if (!userOrders[order.userId]) {
-        userOrders[order.userId] = [];
+      // Only include orders that are not filled or cancelled
+      if (order.status !== 'FILLED' && order.status !== 'CANCELLED' && order.status !== 'filled' && order.status !== 'cancelled') {
+        if (!userOrders[order.userId]) {
+          userOrders[order.userId] = [];
+        }
+        // Sanitize order for frontend by converting Decimals to numbers
+        userOrders[order.userId].push(this.toJSONOrder(order));
       }
-      // Sanitize order for frontend by converting Decimals to numbers
-      userOrders[order.userId].push(this.toJSONOrder(order));
     });
     return userOrders;
   }
