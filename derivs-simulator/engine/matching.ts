@@ -192,6 +192,7 @@ export class MatchingEngine {
     
     if (incomingOrder.remainingSize.isZero()) {
       incomingOrder.status = 'FILLED';
+      this.orderBook.removeOrder(incomingOrder.id);
     } else if (incomingOrder.filledSize > 0) {
       incomingOrder.status = 'PARTIALLY_FILLED';
     }
