@@ -750,6 +750,13 @@ class Exchange {
     this.log('DEBUG', 'Updating PnL for all positions');
     this.positions.forEach(position => {
       const currentPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
+      
+      // Update user's unrealized P&L
+      const user = this.users.get(position.userId);
+      if (user) {
+        user.updatePnL(currentPnL);
+      }
+      
       this.log('DEBUG', `Position PnL updated`, {
         userId: position.userId,
         side: position.side,
