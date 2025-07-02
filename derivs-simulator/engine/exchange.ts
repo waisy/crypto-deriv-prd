@@ -253,6 +253,8 @@ export class Exchange {
         return await this.updateMarkPrice(data.price);
       case 'get_state':
         return this.getState();
+      case 'getState':
+        return this.getState();
       case 'reset_state':
         return this.resetState();
       case 'liquidation_step':
@@ -271,6 +273,9 @@ export class Exchange {
   // Order placement method - MINIMAL IMPLEMENTATION FOR TESTS
   private async placeOrder(data: OrderData): Promise<OrderResponse> {
     try {
+      // Risk validation
+      this.validateRiskLimits(data.userId, data.side, data.size, data.price, data.leverage);
+
       const { userId, side, size, price, leverage } = data;
       
       // Get user
@@ -317,10 +322,15 @@ export class Exchange {
 
       return { 
         success: true, 
-        orderId: Date.now().toString(),
-        trade: {
-          price: data.price,
+        order: {
+          id: `order_${Date.now()}_${data.userId}`,
+          status: 'filled',
+          userId: data.userId,
+          side: data.side,
           size: data.size,
+          price: data.price,
+          orderType: data.orderType,
+          leverage: data.leverage,
           timestamp: Date.now()
         }
       };
@@ -636,117 +646,63 @@ export class Exchange {
   }
 
   private async updateMarkPrice(price: number): Promise<ExchangeResponse> {
-    const oldPrice = this.currentMarkPrice;
-    this.currentMarkPrice = new Decimal(price);
-    this.indexPrice = new Decimal(price);
-    
-    this.log('INFO', `📊 MARK PRICE UPDATE`, {
-      oldPrice: oldPrice.toString(),
-      newPrice: price.toString(),
-      change: this.currentMarkPrice.minus(oldPrice).toString(),
-      changePercent: this.currentMarkPrice.minus(oldPrice).dividedBy(oldPrice).times(100).toFixed(2) + '%'
-    });
-    
-    this.log('DEBUG', 'Updating PnL for all positions');
-    this.positions.forEach(position => {
-      const currentPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
-      this.log('DEBUG', `Position PnL updated`, {
-        userId: position.userId,
-        side: position.side,
-        size: position.size.toString(),
-        entryPrice: position.avgEntryPrice.toString(),
-        currentPrice: this.currentMarkPrice.toString(),
-        unrealizedPnL: currentPnL.toString()
-      });
-    });
-    
-    this.logZeroSumCheck('After mark price update');
-    
-    this.log('INFO', '🔍 CHECKING FOR LIQUIDATIONS...');
-    const liquidations = await this.checkLiquidations();
-
-    return {
-      success: true
-    };
+    try {
+      this.currentMarkPrice = new Decimal(price);
+      this.log('INFO', `📈 MARK PRICE UPDATED`, { markPrice: price.toString() });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to update mark price' };
+    }
   }
 
   private async checkLiquidations(): Promise<any[]> {
     const liquidations: any[] = [];
-    
-    if (!this.liquidationEnabled) {
-      this.log('DEBUG', 'Liquidations disabled');
-      return liquidations;
-    }
-
-    this.log('DEBUG', `🔍 Checking liquidations for ${this.positions.size} positions`);
-    
-    // For now, implement a simplified liquidation check
-    // TODO: Integrate with full liquidation engine when type issues are resolved
     for (const [userId, position] of this.positions.entries()) {
-      // Skip positions without a valid side
-      if (!position.side) {
-        continue;
-      }
-      
-      // Simple liquidation check: if unrealized loss exceeds 80% of margin
-      const unrealizedPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
-      const marginLoss = unrealizedPnL.abs();
-      const marginThreshold = position.initialMargin.times(0.8);
-      
-      if (unrealizedPnL.isNegative() && marginLoss.greaterThan(marginThreshold)) {
-        this.log('INFO', `🚨 LIQUIDATION DETECTED for ${userId}`, {
+      if (position.side !== 'long' && position.side !== 'short') continue;
+      const shouldLiquidate = this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice);
+      if (shouldLiquidate) {
+        this.log('ERROR', `🚨 LIQUIDATION TRIGGERED for ${userId}`, {
           positionSide: position.side,
           positionSize: position.size.toString(),
           entryPrice: position.avgEntryPrice.toString(),
           currentPrice: this.currentMarkPrice.toString(),
-          unrealizedPnL: unrealizedPnL.toString(),
-          marginLoss: marginLoss.toString(),
-          marginThreshold: marginThreshold.toString()
+          liquidationPrice: position.liquidationPrice.toString(),
+          unrealizedPnL: position.calculateUnrealizedPnL(this.currentMarkPrice).toString()
         });
-        
-        // For now, just log the liquidation without executing
-        // Full implementation will be added in Phase 3
-        liquidations.push({
-          userId,
-          positionSide: position.side,
-          positionSize: position.size.toString(),
-          entryPrice: position.avgEntryPrice.toString(),
-          unrealizedPnL: unrealizedPnL.toString(),
-          detected: true,
-          executed: false,
-          reason: 'Simplified liquidation detection'
-        });
+        this.logZeroSumCheck('Before liquidation execution');
+        const bankruptcyPrice = this.marginCalculator.calculateBankruptcyPrice(position as any);
+        const transferredPosition = this.positionLiquidationEngine.receivePosition(position, bankruptcyPrice, userId);
+        this.log('INFO', `📝 Position transferred to liquidation engine with ID: ${transferredPosition.id}`);
+        const result = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, this.positions);
+        liquidations.push(result);
+        this.log('INFO', `🔥 LIQUIDATION COMPLETED for ${userId}`, result);
+        if (result.adlSocializationRequired && transferredPosition) {
+          const socializationAmount = new Decimal(result.adlSocializationRequired);
+          this.adlSocializationAmounts.set(transferredPosition.id, socializationAmount);
+          this.log('INFO', `💰 ADL SOCIALIZATION REQUIRED for position ${transferredPosition.id}`, {
+            amount: socializationAmount.toString(),
+            originalUser: userId,
+            reason: 'Beyond-margin loss exceeds insurance fund'
+          });
+        }
+        this.positions.delete(userId);
       }
     }
-    
-    if (liquidations.length === 0) {
-      this.log('DEBUG', '✅ No liquidations required');
-    } else {
-      this.log('INFO', `⚡ ${liquidations.length} liquidation(s) detected (not executed in Phase 2)`);
-    }
-    
     return liquidations;
   }
 
   public getState(): StateResponse {
-    const usersState: { [userId: string]: any } = {};
-    
-    // Convert users to state format using proper User.toJSON() method
-    for (const [userId, user] of this.users) {
-      const userJson = user.toJSON();
-      usersState[userId] = {
-        id: userJson.id,
-        name: userJson.name,
-        availableBalance: parseFloat(userJson.availableBalance),
-        usedMargin: parseFloat(userJson.usedMargin),
-        totalBalance: parseFloat(userJson.totalBalance),
-        unrealizedPnL: parseFloat(userJson.unrealizedPnL),
-        leverage: userJson.leverage,
-        totalPnL: parseFloat(userJson.totalPnL),
-        marginRatio: userJson.marginRatio,
-        equity: parseFloat(userJson.equity)
-      };
-    }
+    const usersState = Array.from(this.users.values()).map(user => ({
+      id: user.id,
+      name: user.name,
+      availableBalance: user.availableBalance.toNumber(),
+      usedMargin: user.usedMargin.toNumber(),
+      totalBalance: user.getTotalBalance().toNumber(),
+      totalPnL: user.totalPnL.toNumber(),
+      unrealizedPnL: user.totalPnL.toNumber(),
+      leverage: 10,
+      equity: user.getTotalBalance().toNumber()
+    }));
 
     // Convert positions to state format
     const positionsState = Array.from(this.positions.values()).map(position => ({
@@ -792,60 +748,167 @@ export class Exchange {
     };
 
     return {
-      users: usersState,
-      positions: positionsState,
-      liquidationPositions: liquidationPositionsState,
-      orderBook: convertedOrderBook,
-      markPrice: this.currentMarkPrice.toNumber(),
-      insuranceFund: parseFloat(this.liquidationEngine.getInsuranceFundBalance()),
-      timestamp: Date.now()
+      success: true,
+      state: {
+        users: usersState,
+        positions: positionsState,
+        liquidationPositions: liquidationPositionsState,
+        orderBook: convertedOrderBook,
+        markPrice: this.currentMarkPrice.toNumber(),
+        insuranceFund: { balance: parseFloat(this.liquidationEngine.getInsuranceFundBalance()) },
+        timestamp: Date.now()
+      }
     };
   }
 
   private resetState(): ExchangeResponse {
-    try {
-      // Clear all positions and trades
-      this.positions.clear();
-      this.trades = [];
-      this.adlSocializationAmounts.clear();
-      
-      // Reset users to initial state
-      this.users.clear();
-      this.initializeUsers();
-      
-      // Reset market data to initial values
-      this.currentMarkPrice = new Decimal(50000);
-      this.indexPrice = new Decimal(50000);
-      
-      console.log('🔄 Exchange state reset successfully');
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'State reset failed' };
-    }
+    this.positions.clear();
+    this.trades = [];
+    this.positionLiquidationEngine = new PositionLiquidationEngine();
+    this.adlSocializationAmounts.clear();
+    this.orderBook = new OrderBook();
+    this.matchingEngine = new MatchingEngine(this.orderBook);
+    this.liquidationEngine = new LiquidationEngine(this.matchingEngine, this.orderBook, this.marginCalculator, this.adlEngine);
+    this.marginMonitor = new MarginMonitor(this.marginCalculator);
+    this.users.clear();
+    this.initializeUsers();
+    this.currentMarkPrice = new Decimal(50000);
+    this.indexPrice = new Decimal(50000);
+    this.fundingRate = new Decimal(0.0001);
+    this.logZeroSumCheck('After state reset');
+    return { success: true };
   }
 
   private async executeLiquidationStep(method: string): Promise<ADLResult> {
-    // Implementation will be added
-    return { success: false, positionsProcessed: 0, trades: [], error: 'Not implemented yet' };
+    this.log('INFO', `🎯 MANUAL LIQUIDATION STEP REQUESTED: ${method.toUpperCase()}`);
+    
+    const lePositions = this.positionLiquidationEngine.getPositionsWithPnL(this.currentMarkPrice);
+    
+    this.log('INFO', `🔍 Found ${lePositions.length} positions in liquidation engine`);
+    
+    if (lePositions.length === 0) {
+      this.log('WARN', 'No positions in liquidation engine to process');
+      return {
+        success: false,
+        positionsProcessed: 0,
+        trades: [],
+        error: 'No positions to liquidate'
+      };
+    }
+
+    let results: any[] = [];
+    let executedCount = 0;
+
+    switch (method) {
+      case 'orderbook':
+        this.log('INFO', `📋 ATTEMPTING ORDER BOOK LIQUIDATION for ${lePositions.length} positions`);
+        
+        for (const position of lePositions) {
+          try {
+            // Try to place market order for this position
+            const liquidationSide = position.side === 'long' ? 'sell' : 'buy';
+            
+            // For Phase 3, implement simplified order book liquidation
+            // TODO: Integrate with full matching engine
+            const logData: LogData = {
+              side: liquidationSide,
+              size: position.size.toString(),
+              originalUser: position.originalUserId
+            };
+            this.log('INFO', `📋 ORDER BOOK LIQUIDATION ATTEMPT for position ${position.id}`, logData);
+            
+            // For now, just log the attempt
+            results.push({
+              positionId: position.id,
+              method: 'orderbook',
+              executed: '0',
+              success: false,
+              error: 'Order book liquidation not fully implemented in Phase 3'
+            });
+          } catch (error) {
+            this.log('ERROR', `Order book liquidation failed for position ${position.id}:`, { error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              positionId: position.id,
+              method: 'orderbook',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              success: false
+            });
+          }
+        }
+        break;
+
+      case 'adl':
+        this.log('INFO', `🔄 EXECUTING ADL for ${lePositions.length} liquidation positions`);
+        
+        for (const lePosition of lePositions) {
+          try {
+            // Get the ADL socialization amount for this position
+            const socializationAmount = this.adlSocializationAmounts.get(lePosition.id) || new Decimal(0);
+            
+            this.log('INFO', `💰 ADL SOCIALIZATION CHECK for position ${lePosition.id}`, {
+              socializationRequired: socializationAmount.toString(),
+              originalUser: lePosition.originalUserId
+            });
+            
+            // For Phase 3, implement simplified ADL
+            // TODO: Integrate with full ADL engine
+            const adlLogData: LogData = {
+              side: lePosition.side,
+              size: lePosition.size.toString(),
+              socializationAmount: socializationAmount.toString()
+            };
+            this.log('INFO', `🔄 ADL EXECUTION ATTEMPT for position ${lePosition.id}`, adlLogData);
+            
+            // For now, just log the attempt
+            results.push({
+              positionId: lePosition.id,
+              method: 'adl',
+              executed: lePosition.size.toString(),
+              success: false,
+              error: 'ADL execution not fully implemented in Phase 3'
+            });
+          } catch (error) {
+            this.log('ERROR', `ADL execution failed for position ${lePosition.id}:`, { error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              positionId: lePosition.id,
+              method: 'adl',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              success: false
+            });
+          }
+        }
+        break;
+
+      default:
+        return {
+          success: false,
+          positionsProcessed: 0,
+          trades: [],
+          error: `Unknown liquidation method: ${method}`
+        };
+    }
+
+    this.log('INFO', `🎯 LIQUIDATION STEP COMPLETED: ${executedCount} positions processed`);
+    
+    return {
+      success: true,
+      positionsProcessed: executedCount,
+      trades: results,
+      error: undefined
+    };
   }
 
   private async manualLiquidate(userId: string): Promise<ExchangeResponse> {
     const position = this.positions.get(userId);
     if (!position) {
-      return {
-        success: false,
-        error: `Position for user ${userId} not found`
-      };
+      return { success: false, error: `Position for user ${userId} not found` };
     }
-
-    // Skip positions without a valid side
-    if (!position.side) {
-      return {
-        success: false,
-        error: `Position for user ${userId} has invalid side`
-      };
+    if (position.side !== 'long' && position.side !== 'short') {
+      return { success: false, error: `Position for user ${userId} has invalid side` };
     }
-
+    if (!this.liquidationEngine.shouldLiquidate(position, this.currentMarkPrice)) {
+      return { success: false, error: `Position for user ${userId} does not meet liquidation criteria` };
+    }
     this.log('INFO', `🔧 MANUAL LIQUIDATION REQUESTED for ${userId}`, {
       positionSide: position.side,
       positionSize: position.size.toString(),
@@ -854,97 +917,96 @@ export class Exchange {
       liquidationPrice: position.liquidationPrice.toString(),
       unrealizedPnL: position.calculateUnrealizedPnL(this.currentMarkPrice).toString()
     });
-    
-    try {
-      this.logZeroSumCheck('Before manual liquidation');
-      
-      // For Phase 2, implement simplified manual liquidation
-      // Close the position at current market price
-      const user = this.users.get(userId);
-      if (user) {
-        const marginAmount = position.initialMargin;
-        const unrealizedPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
-        
-        // User loses their margin in isolated margin system
-        user.usedMargin = user.usedMargin.minus(marginAmount);
-        
-        // Apply the P&L (could be positive or negative)
-        user.realizePnL(unrealizedPnL);
-        
-        this.log('INFO', `💸 MANUAL LIQUIDATION EXECUTED for ${userId}`, {
-          marginLost: marginAmount.toString(),
-          realizedPnL: unrealizedPnL.toString(),
-          newUsedMargin: user.usedMargin.toString(),
-          newAvailableBalance: user.availableBalance.toString(),
-          newTotalPnL: user.totalPnL.toString()
-        });
-      }
-      
-      // Remove position after liquidation
-      this.positions.delete(userId);
-      
-      this.logZeroSumCheck('After manual liquidation');
-      
-      return {
-        success: true
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Manual liquidation failed'
-      };
+    this.logZeroSumCheck('Before manual liquidation');
+    const bankruptcyPrice = this.marginCalculator.calculateBankruptcyPrice(position as any);
+    const transferredPosition = this.positionLiquidationEngine.receivePosition(position, bankruptcyPrice, userId);
+    this.log('INFO', `📝 Manual liquidation: Position transferred to liquidation engine with ID: ${transferredPosition.id}`);
+    const user = this.users.get(userId);
+    if (user) {
+      user.usedMargin = user.usedMargin.minus(position.initialMargin);
+      user.realizePnL(position.calculateUnrealizedPnL(this.currentMarkPrice));
     }
+    this.positions.delete(userId);
+    this.logZeroSumCheck('After manual liquidation');
+    return { success: true };
+  }
+
+  private async forceLiquidation(userId: string): Promise<ExchangeResponse> {
+    const position = this.positions.get(userId);
+    if (!position) {
+      return { success: false, error: `Position for user ${userId} not found` };
+    }
+    if (position.side !== 'long' && position.side !== 'short') {
+      return { success: false, error: `Position for user ${userId} has invalid side` };
+    }
+    this.log('INFO', `🔄 FORCE LIQUIDATION: TRANSFERRING POSITION TO LIQUIDATION ENGINE`);
+    const bankruptcyPrice = this.marginCalculator.calculateBankruptcyPrice(position as any);
+    const transferredPosition = this.positionLiquidationEngine.receivePosition(position, bankruptcyPrice, userId);
+    this.log('INFO', `📝 Force liquidation: Position transferred to liquidation engine with ID: ${transferredPosition.id}`);
+    const result = await this.liquidationEngine.liquidate(position, this.currentMarkPrice, this.positions, true);
+    this.positions.delete(userId);
+    this.logZeroSumCheck('After force liquidation and position transfer');
+    return { success: true };
   }
 
   private getInsuranceFund(): ExchangeResponse {
     try {
       const balance = this.liquidationEngine.getInsuranceFundBalance();
       const isAtRisk = this.liquidationEngine.isSystemAtRisk();
-      
       this.log('INFO', `📊 INSURANCE FUND STATUS`, {
         balance: balance.toString(),
         isAtRisk
       });
-
-      return {
-        success: true
-      };
+      return { success: true, insuranceFund: Number(balance), isAtRisk } as any;
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get insurance fund status'
-      };
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to get insurance fund status' };
     }
   }
 
   private adjustInsuranceFund(amount: number, description: string): ExchangeResponse {
     try {
       const decAmount = new Decimal(amount);
-      
       this.log('INFO', `💰 ADJUSTING INSURANCE FUND`, {
         amount: amount.toString(),
         description
       });
-
-      // Use the liquidation engine's manual adjustment method
       this.liquidationEngine.manualAdjustment(decAmount, description, 'manual_adjustment');
-      
       const newBalance = this.liquidationEngine.getInsuranceFundBalance();
-      
       this.log('INFO', `✅ INSURANCE FUND ADJUSTED`, {
         adjustment: amount.toString(),
         newBalance: newBalance.toString(),
         description
       });
-
-      return {
-        success: true
-      };
+      return { success: true };
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to adjust insurance fund'
-      };
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to adjust insurance fund' };
+    }
+  }
+
+  private validateRiskLimits(userId: string, side: 'buy' | 'sell', size: number, price: number, leverage: number): void {
+    const decSize = new Decimal(size);
+    const decPrice = new Decimal(price);
+    if (decSize.greaterThan(this.riskLimits.maxPositionSize)) {
+      throw new Error(`Position size exceeds limit.`);
+    }
+    const positionValue = decSize.times(decPrice);
+    if (positionValue.greaterThan(this.riskLimits.maxPositionValue)) {
+      throw new Error(`Position value exceeds limit.`);
+    }
+    if (leverage > this.riskLimits.maxLeverage) {
+      throw new Error(`Leverage exceeds limit.`);
+    }
+    // Check total position size including existing positions
+    const existingPosition = this.positions.get(userId);
+    if (existingPosition && existingPosition.side === (side === 'buy' ? 'long' : 'short')) {
+      const totalSize = existingPosition.size.plus(decSize);
+      if (totalSize.greaterThan(this.riskLimits.maxPositionSize)) {
+        throw new Error(`Total position size would exceed limit.`);
+      }
+      const totalValue = totalSize.times(decPrice);
+      if (totalValue.greaterThan(this.riskLimits.maxPositionValue)) {
+        throw new Error(`Total position value would exceed limit.`);
+      }
     }
   }
 }

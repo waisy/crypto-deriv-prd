@@ -43,6 +43,17 @@ export interface OrderResponse {
   success: boolean;
   orderId?: string;
   error?: string;
+  order?: {
+    id: string;
+    status: string;
+    userId: string;
+    side: 'buy' | 'sell';
+    size: number;
+    price: number;
+    orderType: 'limit' | 'market';
+    leverage: number;
+    timestamp: number;
+  };
   trade?: {
     price: number;
     size: number;
@@ -51,13 +62,23 @@ export interface OrderResponse {
 }
 
 export interface StateResponse {
-  users: { [userId: string]: UserState };
-  positions: PositionState[];
-  liquidationPositions: LiquidationPositionState[];
-  orderBook: OrderBookState;
-  markPrice: number;
-  insuranceFund: number;
-  timestamp: number;
+  success?: boolean;
+  state?: {
+    users: UserState[] | { [userId: string]: UserState };
+    positions: PositionState[];
+    liquidationPositions: LiquidationPositionState[];
+    orderBook: OrderBookState;
+    markPrice: number;
+    insuranceFund: number | { balance: number };
+    timestamp: number;
+  };
+  users?: UserState[] | { [userId: string]: UserState };
+  positions?: PositionState[];
+  liquidationPositions?: LiquidationPositionState[];
+  orderBook?: OrderBookState;
+  markPrice?: number;
+  insuranceFund?: number | { balance: number };
+  timestamp?: number;
 }
 
 export interface UserState {
@@ -180,6 +201,7 @@ export type ExchangeMessage =
   | LiquidationStepData
   | ManualLiquidateData
   | { type: 'get_state' }
+  | { type: 'getState' }
   | { type: 'reset_state' }
   | { type: 'get_insurance_fund' }
   | { type: 'adjust_insurance_fund'; amount: number; description: string };
