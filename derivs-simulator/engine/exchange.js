@@ -1437,8 +1437,41 @@ class Exchange {
   }
 
   getState() {
+    // Calculate correct margin ratios using MarginCalculator
+    const usersWithCorrectMarginRatio = Array.from(this.users.values()).map(user => {
+      const userJson = user.toJSON();
+      
+      // Find user's position to calculate correct margin ratio
+      const userPosition = Array.from(this.positions.values()).find(p => p.userId === user.id);
+      
+      if (userPosition) {
+        // Use MarginCalculator to get correct margin ratio (using maintenance margin)
+        const positionForMargin = {
+          size: userPosition.size,
+          avgEntryPrice: userPosition.avgEntryPrice,
+          side: userPosition.side,
+          leverage: userPosition.leverage,
+          unrealizedPnL: userPosition.calculateUnrealizedPnL(this.currentMarkPrice)
+        };
+        
+        const correctMarginRatio = this.marginCalculator.calculateMarginRatio(
+          positionForMargin, 
+          user.availableBalance, 
+          this.currentMarkPrice
+        );
+        
+        // Update the margin ratio with the correct calculation
+        userJson.marginRatio = correctMarginRatio ? correctMarginRatio.toString() : 'N/A';
+      } else {
+        // No position - margin ratio should be N/A
+        userJson.marginRatio = 'N/A';
+      }
+      
+      return userJson;
+    });
+    
     return {
-      users: Array.from(this.users.values()).map(u => u.toJSON()),
+      users: usersWithCorrectMarginRatio,
       positions: Array.from(this.positions.values()).map(p => p.toJSON(this.currentMarkPrice)),
       orderBook: this.orderBook.toJSON(),
       trades: this.trades.slice(-20),

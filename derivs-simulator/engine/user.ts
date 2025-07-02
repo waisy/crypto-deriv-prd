@@ -75,17 +75,11 @@ export class User {
     this.availableBalance = this.availableBalance.plus(decAmount);
   }
 
-  getMarginRatio(): Decimal | null {
-    if (this.usedMargin.isZero()) return null;
-    return this.availableBalance.plus(this.unrealizedPnL).dividedBy(this.usedMargin).times(100);
-  }
-
   getEquity(): Decimal {
     return this.getTotalBalance().plus(this.unrealizedPnL);
   }
 
   toJSON(): UserJSON {
-    const marginRatio = this.getMarginRatio();
     return {
       id: this.id,
       name: this.name,
@@ -95,7 +89,7 @@ export class User {
       unrealizedPnL: this.unrealizedPnL.toString(),
       leverage: this.leverage,
       totalPnL: this.totalPnL.toString(),
-      marginRatio: marginRatio ? marginRatio.toString() : 'N/A',
+      marginRatio: 'N/A',
       equity: this.getEquity().toString()
     };
   }
