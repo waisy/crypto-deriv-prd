@@ -603,6 +603,9 @@ class Exchange {
         this.positions.delete(positionKey);
       }
     }
+    
+    // Update all user unrealized P&L after position modifications
+    this.updateAllUserUnrealizedPnL();
   }
 
   handleLiquidationEnginePositionTrade(trade) {
@@ -747,7 +750,31 @@ class Exchange {
       changePercent: this.currentMarkPrice.minus(oldPrice).dividedBy(oldPrice).times(100).toFixed(2) + '%'
     });
     
-    this.log('DEBUG', 'Updating PnL for all positions');
+    this.updateAllUserUnrealizedPnL();
+    
+    this.logZeroSumCheck('After mark price update');
+    
+    this.log('INFO', '🔍 CHECKING FOR LIQUIDATIONS...');
+    const liquidations = await this.checkLiquidations();
+
+    return {
+      success: true,
+      newPrice,
+      liquidations,
+      state: this.getState()
+    };
+  }
+
+  // New method to update all user unrealized P&L
+  updateAllUserUnrealizedPnL() {
+    this.log('DEBUG', 'Updating PnL for all positions and users');
+    
+    // Reset all user unrealized P&L to zero first
+    this.users.forEach(user => {
+      user.updatePnL(0);
+    });
+    
+    // Calculate and update unrealized P&L for each position
     this.positions.forEach(position => {
       const currentPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
       
@@ -766,18 +793,6 @@ class Exchange {
         unrealizedPnL: currentPnL.toString()
       });
     });
-    
-    this.logZeroSumCheck('After mark price update');
-    
-    this.log('INFO', '🔍 CHECKING FOR LIQUIDATIONS...');
-    const liquidations = await this.checkLiquidations();
-
-    return {
-      success: true,
-      newPrice,
-      liquidations,
-      state: this.getState()
-    };
   }
 
   async checkLiquidations() {
@@ -1317,6 +1332,9 @@ class Exchange {
     }
 
     this.log('INFO', `🎯 LIQUIDATION STEP COMPLETED: ${executedCount} positions processed`);
+    
+    // Update all user unrealized P&L after liquidation operations
+    this.updateAllUserUnrealizedPnL();
     
     return {
       success: true,
