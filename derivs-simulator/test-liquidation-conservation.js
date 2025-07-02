@@ -89,7 +89,7 @@ describe('Liquidation Conservation Tests', () => {
 function calculateSystemTotal(state) {
   let userTotal = 0;
   
-  state.users.forEach(user => {
+  Object.values(state.users).forEach(user => {
     userTotal += parseFloat(user.totalBalance || user.balance || 0);
   });
   

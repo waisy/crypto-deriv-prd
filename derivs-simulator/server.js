@@ -12,7 +12,7 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Import the exchange engine
+// Import the exchange engine (TypeScript version)
 const { Exchange } = require('./engine/exchange');
 const exchange = new Exchange();
 

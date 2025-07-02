@@ -30,7 +30,7 @@ describe('Simple Order Tests', () => {
 
     // Get initial state
     const initial = await client.getState();
-    console.log('Initial users:', initial.users.map(u => u.id));
+    console.log('Initial users:', Object.keys(initial.users));
     
     // Place Bob's buy order
     console.log('Placing Bob buy order...');

@@ -26,7 +26,7 @@ describe('Connection Tests', () => {
       const state = await client.getState();
       expect(state).toBeDefined();
       expect(state.users).toBeDefined();
-      expect(Array.isArray(state.users)).toBe(true);
+      expect(typeof state.users).toBe('object');
       
       console.log('✅ State request successful');
       console.log('✅ Connection test passed');

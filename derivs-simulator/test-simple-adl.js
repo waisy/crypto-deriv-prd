@@ -200,7 +200,7 @@ function takeSnapshot(state, label) {
   const users = {};
   
   // Extract user data
-  state.users.forEach(user => {
+  Object.values(state.users).forEach(user => {
     users[user.id] = {
       balance: parseFloat(user.totalBalance || user.balance),
       available: parseFloat(user.availableBalance),

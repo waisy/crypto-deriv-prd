@@ -21,7 +21,8 @@ module.exports = {
     '**/test-liquidation-mechanics.js',
     '**/test-simple-adl.js',
     '**/test-manual-liquidation.js',
-    '**/test-liquidation-conservation.js'
+    '**/test-liquidation-conservation.js',
+    '**/test-exchange-typescript.js'
   ],
   // Exclude helper files and broken unit tests
   testPathIgnorePatterns: [

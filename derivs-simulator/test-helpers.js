@@ -256,7 +256,8 @@ class TestWebSocketClient {
 
   async getState() {
     const response = await this.sendMessage({ type: 'get_state' });
-    return response.state;
+    // The TypeScript Exchange returns the state directly, not wrapped in a 'state' property
+    return response.state || response;
   }
 
   async placeOrder(userId, side, size, price, leverage, orderType = 'limit') {
