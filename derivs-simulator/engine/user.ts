@@ -22,7 +22,7 @@ export class User {
   public leverage: number;
   public totalPnL: Decimal;
 
-  constructor(id: string, name: string, initialBalance: number | string | Decimal) {
+  constructor(id: string, name: string, initialBalance: Decimal) {
     this.id = id;
     this.name = name;
     this.availableBalance = new Decimal(initialBalance);
@@ -36,17 +36,17 @@ export class User {
     return this.availableBalance.plus(this.usedMargin);
   }
 
-  updateAvailableBalance(amount: number | string | Decimal): void {
+  updateAvailableBalance(amount: Decimal): void {
     const decAmount = new Decimal(amount);
     this.availableBalance = this.availableBalance.plus(decAmount);
   }
 
-  deposit(amount: number | string | Decimal): void {
+  deposit(amount: Decimal): void {
     const decAmount = new Decimal(amount);
     this.availableBalance = this.availableBalance.plus(decAmount);
   }
 
-  withdraw(amount: number | string | Decimal): void {
+  withdraw(amount: Decimal): void {
     const decAmount = new Decimal(amount);
     if (decAmount.greaterThan(this.availableBalance)) {
       throw new Error('Insufficient available balance for withdrawal');
@@ -54,19 +54,19 @@ export class User {
     this.availableBalance = this.availableBalance.minus(decAmount);
   }
 
-  updatePnL(unrealizedPnL: number | string | Decimal): void {
+  updatePnL(unrealizedPnL: Decimal): void {
     this.unrealizedPnL = new Decimal(unrealizedPnL);
   }
 
   // New method to handle P&L realization
-  realizePnL(realizedAmount: number | string | Decimal): void {
+  realizePnL(realizedAmount: Decimal): void {
     const decAmount = new Decimal(realizedAmount);
     this.availableBalance = this.availableBalance.plus(decAmount);
     this.totalPnL = this.totalPnL.plus(decAmount);
   }
 
   // New method to release margin back to available balance
-  releaseMargin(marginAmount: number | string | Decimal): void {
+  releaseMargin(marginAmount: Decimal): void {
     const decAmount = new Decimal(marginAmount);
     if (decAmount.greaterThan(this.usedMargin)) {
       throw new Error('Cannot release more margin than currently used');

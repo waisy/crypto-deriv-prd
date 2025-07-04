@@ -7,8 +7,8 @@ export type RiskLevel = 'safe' | 'warning' | 'urgent' | 'critical';
 export interface PositionForOptimizer {
   userId: string;
   side: 'long' | 'short';
-  size: number | string | Decimal;
-  unrealizedPnL?: number | string | Decimal;
+  size: Decimal;
+  unrealizedPnL?: Decimal;
 }
 
 export interface CachedMarginCalculation {
@@ -191,7 +191,7 @@ export class PerformanceOptimizer {
   }
 
   // Optimized liquidation candidate selection
-  getLiquidationCandidates(currentPrice: number | string | Decimal, marginCalculator: MarginCalculator): LiquidationCandidate[] {
+  getLiquidationCandidates(currentPrice: Decimal, marginCalculator: MarginCalculator): LiquidationCandidate[] {
     const startTime = Date.now();
     const candidates: LiquidationCandidate[] = [];
     const currentPriceNum = typeof currentPrice === 'number' ? currentPrice : new Decimal(currentPrice).toNumber();
@@ -214,10 +214,10 @@ export class PerformanceOptimizer {
         const positionForMargin: PositionForMargin = {
           side: position.side,
           size: position.size,
-          avgEntryPrice: 0, // This should be provided by the actual position
-          leverage: 1, // This should be provided by the actual position
-          initialMargin: 0, // This should be provided by the actual position
-          unrealizedPnL: position.unrealizedPnL || 0
+          avgEntryPrice: new Decimal(0), // This should be provided by the actual position
+          leverage: new Decimal(1), // This should be provided by the actual position
+          initialMargin: new Decimal(0), // This should be provided by the actual position
+          unrealizedPnL: position.unrealizedPnL || new Decimal(0)
         };
         liquidationPrice = marginCalculator.calculateLiquidationPrice(positionForMargin);
       }
@@ -264,7 +264,7 @@ export class PerformanceOptimizer {
   }
 
   // Batch update positions for performance
-  batchUpdatePositions(positions: Map<string, PositionForOptimizer>, users: Map<string, User>, currentPrice: number | string | Decimal, marginCalculator: MarginCalculator): PositionUpdate[] {
+  batchUpdatePositions(positions: Map<string, PositionForOptimizer>, users: Map<string, User>, currentPrice: Decimal, marginCalculator: MarginCalculator): PositionUpdate[] {
     const startTime = Date.now();
     const updates: PositionUpdate[] = [];
     
@@ -297,7 +297,7 @@ export class PerformanceOptimizer {
   }
 
   // Optimized margin status calculation with caching
-  calculateMarginStatusOptimized(position: PositionForOptimizer, user: User, currentPrice: number | string | Decimal, marginCalculator: MarginCalculator): OptimizedMarginStatus {
+  calculateMarginStatusOptimized(position: PositionForOptimizer, user: User, currentPrice: Decimal, marginCalculator: MarginCalculator): OptimizedMarginStatus {
     const currentPriceNum = typeof currentPrice === 'number' ? currentPrice : new Decimal(currentPrice).toNumber();
     
     // Check cache first
@@ -325,10 +325,10 @@ export class PerformanceOptimizer {
     const positionForMargin: PositionForMargin = {
       side: position.side,
       size: position.size,
-      avgEntryPrice: 0, // Should be provided by actual position
-      leverage: 1, // Should be provided by actual position  
-      initialMargin: 0, // Should be provided by actual position
-      unrealizedPnL: position.unrealizedPnL || 0
+      avgEntryPrice: new Decimal(0), // Should be provided by actual position
+      leverage: new Decimal(1), // Should be provided by actual position  
+      initialMargin: new Decimal(0), // Should be provided by actual position
+      unrealizedPnL: position.unrealizedPnL || new Decimal(0)
     };
     
     const maintenanceMargin = marginCalculator.calculateMaintenanceMargin(position.size, currentPrice);

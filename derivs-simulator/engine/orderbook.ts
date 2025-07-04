@@ -113,7 +113,7 @@ export class OrderBook {
     return orders ? orders[0] : null;
   }
 
-  getOrdersAtPrice(side: OrderSide, price: number | string | Decimal): Order[] {
+  getOrdersAtPrice(side: OrderSide, price: Decimal): Order[] {
     const priceKey = price.toString();
     const priceLevel = side === 'buy' ? this.bids : this.asks;
     return priceLevel.get(priceKey) || [];

@@ -8,11 +8,11 @@ export interface MarginRequirements {
 
 export interface PositionForMargin {
   side: 'long' | 'short';
-  size: number | string | Decimal;
-  avgEntryPrice: number | string | Decimal;
-  leverage: number | string | Decimal;
-  initialMargin: number | string | Decimal;
-  unrealizedPnL: number | string | Decimal;
+  size: Decimal;
+  avgEntryPrice: Decimal;
+  leverage: Decimal;
+  initialMargin: Decimal;
+  unrealizedPnL: Decimal;
 }
 
 export class MarginCalculator {
@@ -24,7 +24,7 @@ export class MarginCalculator {
     this.initialMarginMultiplier = new Decimal(2); // Initial margin is 2x maintenance margin
   }
 
-  calculateInitialMargin(size: number | string | Decimal, price: number | string | Decimal, leverage: number | string | Decimal): Decimal {
+  calculateInitialMargin(size: Decimal, price: Decimal, leverage: Decimal): Decimal {
     const decSize = new Decimal(size);
     const decPrice = new Decimal(price);
     const decLeverage = new Decimal(leverage);
@@ -32,14 +32,13 @@ export class MarginCalculator {
     return positionValue.dividedBy(decLeverage);
   }
 
-  calculateMaintenanceMargin(size: number | string | Decimal, price: number | string | Decimal): Decimal {
-    const decSize = new Decimal(size);
-    const decPrice = new Decimal(price);
-    const positionValue = decSize.times(decPrice);
+  calculateMaintenanceMargin(size: Decimal, price: Decimal): Decimal {
+
+    const positionValue = size.times(price);
     return positionValue.times(this.maintenanceMarginRate);
   }
 
-  calculateMarginRequirements(position: PositionForMargin, currentPrice: number | string | Decimal): MarginRequirements {
+  calculateMarginRequirements(position: PositionForMargin, currentPrice: Decimal): MarginRequirements {
     const decCurrentPrice = new Decimal(currentPrice);
     
     return {
@@ -86,7 +85,7 @@ export class MarginCalculator {
   }
 
   // Check if position should be liquidated
-  shouldLiquidate(position: PositionForMargin, currentPrice: number | string | Decimal): boolean {
+  shouldLiquidate(position: PositionForMargin, currentPrice: Decimal): boolean {
     const decCurrentPrice = new Decimal(currentPrice);
     const liquidationPrice = this.calculateLiquidationPrice(position);
     
@@ -98,7 +97,7 @@ export class MarginCalculator {
   }
 
   // Calculate margin ratio
-  calculateMarginRatio(position: PositionForMargin, availableBalance: number | string | Decimal, currentPrice: number | string | Decimal): Decimal | null {
+  calculateMarginRatio(position: PositionForMargin, availableBalance: Decimal, currentPrice: Decimal): Decimal | null {
     const decCurrentPrice = new Decimal(currentPrice);
     const decAvailableBalance = new Decimal(availableBalance);
 
@@ -110,7 +109,7 @@ export class MarginCalculator {
   }
 
   // Calculate maximum position size for given margin
-  calculateMaxPositionSize(availableMargin: number | string | Decimal, price: number | string | Decimal, leverage: number | string | Decimal): Decimal {
+  calculateMaxPositionSize(availableMargin: Decimal, price: Decimal, leverage: Decimal): Decimal {
     const decAvailableMargin = new Decimal(availableMargin);
     const decPrice = new Decimal(price);
     const decLeverage = new Decimal(leverage);
@@ -118,7 +117,7 @@ export class MarginCalculator {
   }
 
   // Calculate required margin for position size
-  calculateRequiredMargin(size: number | string | Decimal, price: number | string | Decimal, leverage: number | string | Decimal): Decimal {
+  calculateRequiredMargin(size: Decimal, price: Decimal, leverage: Decimal): Decimal {
     const decSize = new Decimal(size);
     const decPrice = new Decimal(price);
     const decLeverage = new Decimal(leverage);

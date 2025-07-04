@@ -47,11 +47,11 @@ export interface MarginSummary {
 export interface PositionForMonitoring {
   userId: string;
   side: 'long' | 'short';
-  size: number | string | Decimal;
-  avgEntryPrice: number | string | Decimal;
-  leverage: number | string | Decimal;
-  initialMargin: number | string | Decimal;
-  unrealizedPnL?: number | string | Decimal;
+  size: Decimal;
+  avgEntryPrice: Decimal;
+  leverage: Decimal;
+  initialMargin: Decimal;
+  unrealizedPnL?: Decimal;
 }
 
 export class MarginMonitor {
@@ -74,7 +74,7 @@ export class MarginMonitor {
   }
 
   // Monitor all positions and generate margin calls
-  monitorPositions(positions: Map<string, PositionForMonitoring>, users: Map<string, User>, currentPrice: number | string | Decimal): MarginCall[] {
+  monitorPositions(positions: Map<string, PositionForMonitoring>, users: Map<string, User>, currentPrice: Decimal): MarginCall[] {
     const marginCallUpdates: MarginCall[] = [];
     
     positions.forEach(position => {
@@ -104,7 +104,7 @@ export class MarginMonitor {
   }
 
   // Calculate detailed margin status for a position
-  calculateMarginStatus(position: PositionForMonitoring, user: User, currentPrice: number | string | Decimal): MarginStatus {
+  calculateMarginStatus(position: PositionForMonitoring, user: User, currentPrice: Decimal): MarginStatus {
     if (!this.marginCalculator) {
       throw new Error('MarginCalculator not available');
     }
@@ -232,7 +232,7 @@ export class MarginMonitor {
   }
 
   // Calculate required margin to reach safe level
-  calculateRequiredMargin(position: PositionForMonitoring, user: User, currentPrice: number | string | Decimal, targetRatio: number = 200): number {
+  calculateRequiredMargin(position: PositionForMonitoring, user: User, currentPrice: Decimal, targetRatio: number = 200): number {
     if (!this.marginCalculator) return 0;
     
     const maintenanceMargin = this.marginCalculator.calculateMaintenanceMargin(position.size, currentPrice);
@@ -245,7 +245,7 @@ export class MarginMonitor {
   }
 
   // Get summary of all margin statuses
-  getMarginSummary(positions: Map<string, PositionForMonitoring>, users: Map<string, User>, currentPrice: number | string | Decimal): MarginSummary {
+  getMarginSummary(positions: Map<string, PositionForMonitoring>, users: Map<string, User>, currentPrice: Decimal): MarginSummary {
     const summary: MarginSummary = {
       totalPositions: positions.size,
       safe: 0,

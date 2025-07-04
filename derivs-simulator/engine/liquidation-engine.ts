@@ -75,7 +75,7 @@ export class PositionLiquidationEngine {
   /**
    * Receives a position from liquidation, transferring it at bankruptcy price
    */
-  receivePosition(originalPosition: Position, bankruptcyPrice: Decimal | number | string, userId: string): LiquidationPosition {
+  receivePosition(originalPosition: Position, bankruptcyPrice: Decimal, userId: string): LiquidationPosition {
     console.log('🔄 POSITION LIQUIDATION ENGINE: RECEIVING POSITION');
     console.log('='.repeat(50));
     console.log(`📥 POSITION TRANSFER TO LIQUIDATION ENGINE:`, {
@@ -114,7 +114,7 @@ export class PositionLiquidationEngine {
   /**
    * Calculate unrealized P&L for all liquidation positions
    */
-  calculateUnrealizedPnL(currentPrice: Decimal | number | string): Decimal {
+  calculateUnrealizedPnL(currentPrice: Decimal): Decimal {
     let totalPnL = new Decimal(0);
     
     for (const position of this.positions) {
@@ -128,7 +128,7 @@ export class PositionLiquidationEngine {
   /**
    * Calculate P&L for a specific liquidation position
    */
-  calculatePositionPnL(position: LiquidationPosition, currentPrice: Decimal | number | string): Decimal {
+  calculatePositionPnL(position: LiquidationPosition, currentPrice: Decimal): Decimal {
     return position.calculateUnrealizedPnL(currentPrice);
   }
 
@@ -162,7 +162,7 @@ export class PositionLiquidationEngine {
   /**
    * Remove position after successful closure
    */
-  removePosition(positionId: string, closureMethod: ClosureMethod, closePrice: Decimal | number | string): PositionClosure | null {
+  removePosition(positionId: string, closureMethod: ClosureMethod, closePrice: Decimal): PositionClosure | null {
     const positionIndex = this.positions.findIndex(p => p.id === positionId);
     if (positionIndex !== -1) {
       const position = this.positions[positionIndex];
@@ -195,7 +195,7 @@ export class PositionLiquidationEngine {
   /**
    * Get summary statistics
    */
-  getSummary(currentPrice: Decimal | number | string): LiquidationSummary {
+  getSummary(currentPrice: Decimal): LiquidationSummary {
     const totalPositions = this.positions.length;
     const totalUnrealizedPnL = this.calculateUnrealizedPnL(currentPrice);
     
@@ -223,7 +223,7 @@ export class PositionLiquidationEngine {
   /**
    * Get all positions with current P&L
    */
-  getPositionsWithPnL(currentPrice: Decimal | number | string): PositionWithPnL[] {
+  getPositionsWithPnL(currentPrice: Decimal): PositionWithPnL[] {
     return this.positions.map(position => {
       const unrealizedPnL = this.calculatePositionPnL(position, currentPrice);
       return {
@@ -240,7 +240,7 @@ export class PositionLiquidationEngine {
   /**
    * Check if liquidation engine can cover positions with insurance fund
    */
-  checkInsuranceFundSufficiency(currentPrice: Decimal | number | string, insuranceFundBalance: Decimal): InsuranceFundSufficiency {
+  checkInsuranceFundSufficiency(currentPrice: Decimal, insuranceFundBalance: Decimal): InsuranceFundSufficiency {
     const totalUnrealizedPnL = this.calculateUnrealizedPnL(currentPrice);
     const exposure = totalUnrealizedPnL.isNegative() ? totalUnrealizedPnL.abs() : new Decimal(0);
     

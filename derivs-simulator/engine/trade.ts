@@ -8,13 +8,13 @@ export type PositionSide = 'long' | 'short';
 export interface TradeOptions {
   id?: string;
   timestamp?: number;
-  fee?: number | string | Decimal;
+  fee?: Decimal;
   leverage?: number;
   orderId?: string | null;
   counterparty?: string | null;
   tradeType?: TradeType;
-  markPrice?: number | string | Decimal | null;
-  indexPrice?: number | string | Decimal | null;
+  markPrice?: Decimal | null;
+  indexPrice?: Decimal | null;
 }
 
 export interface TradeJSON {
@@ -55,8 +55,8 @@ export class Trade {
   constructor(
     userId: string,
     side: TradeSide,
-    size: number | string | Decimal,
-    price: number | string | Decimal,
+    size: Decimal,
+    price: Decimal,
     options: TradeOptions = {}
   ) {
     // Validate required parameters
@@ -101,8 +101,8 @@ export class Trade {
   static createNormalTrade(
     userId: string,
     side: TradeSide,
-    size: number | string | Decimal,
-    price: number | string | Decimal,
+    size: Decimal,
+    price: Decimal,
     options: TradeOptions = {}
   ): Trade {
     return new Trade(userId, side, size, price, {
@@ -114,8 +114,8 @@ export class Trade {
   static createLiquidationTrade(
     userId: string,
     side: TradeSide,
-    size: number | string | Decimal,
-    price: number | string | Decimal,
+    size: Decimal,
+    price: Decimal,
     options: TradeOptions = {}
   ): Trade {
     return new Trade(userId, side, size, price, {
@@ -127,8 +127,8 @@ export class Trade {
   static createADLTrade(
     userId: string,
     side: TradeSide,
-    size: number | string | Decimal,
-    price: number | string | Decimal,
+    size: Decimal,
+    price: Decimal,
     options: TradeOptions = {}
   ): Trade {
     return new Trade(userId, side, size, price, {
@@ -170,7 +170,7 @@ export class Trade {
   }
 
   // Calculate PnL if this trade closes a position at entry price
-  calculatePnL(entryPrice: number | string | Decimal): Decimal {
+  calculatePnL(entryPrice: Decimal): Decimal {
     const decEntryPrice = new Decimal(entryPrice);
     if (this.side === 'sell') {
       // Selling: PnL = (sell price - entry price) * size
@@ -230,16 +230,16 @@ export class Trade {
 
   // Create from JSON
   static fromJSON(data: TradeJSON): Trade {
-    return new Trade(data.userId, data.side, data.size, data.price, {
+    return new Trade(data.userId, data.side, new Decimal(data.size), new Decimal(data.price), {
       id: data.id,
       timestamp: data.timestamp,
-      fee: data.fee,
+      fee: data.fee ? new Decimal(data.fee) : undefined,
       leverage: data.leverage,
       orderId: data.orderId,
       counterparty: data.counterparty,
       tradeType: data.tradeType,
-      markPrice: data.markPrice,
-      indexPrice: data.indexPrice
+      markPrice: data.markPrice ? new Decimal(data.markPrice) : null,
+      indexPrice: data.indexPrice ? new Decimal(data.indexPrice) : null
     });
   }
 

@@ -135,7 +135,7 @@ export class Position {
     return new Decimal(0);
   }
 
-  addSize(additionalSize: number | string | Decimal, price: number | string | Decimal): void {
+  addSize(additionalSize: Decimal, price: Decimal): void {
     const decAdditionalSize = new Decimal(additionalSize);
     const decPrice = new Decimal(price);
 
@@ -156,7 +156,7 @@ export class Position {
     this.addTrade(trade);
   }
 
-  reduceSize(reductionSize: number | string | Decimal, price: number | string | Decimal): Decimal {
+  reduceSize(reductionSize: Decimal, price: Decimal): Decimal {
     const decReductionSize = new Decimal(reductionSize);
     const decPrice = new Decimal(price);
 
@@ -191,7 +191,7 @@ export class Position {
     return realizedPnL;
   }
 
-  closePosition(price: number | string | Decimal): Decimal {
+  closePosition(price: Decimal): Decimal {
     const decPrice = new Decimal(price);
     if (decPrice.isNegative() || decPrice.isZero()) {
       throw new Error('Invalid price for closing position');
@@ -201,7 +201,7 @@ export class Position {
     return realizedPnL;
   }
 
-  updatePnL(currentPrice: number | string | Decimal): Decimal {
+  updatePnL(currentPrice: Decimal): Decimal {
     // This method is kept for backward compatibility
     // In trade-based system, PnL is calculated on demand
     const decCurrentPrice = new Decimal(currentPrice);
@@ -213,7 +213,7 @@ export class Position {
     return this.calculateUnrealizedPnL(currentPrice);
   }
 
-  calculateUnrealizedPnL(currentPrice: number | string | Decimal): Decimal {
+  calculateUnrealizedPnL(currentPrice: Decimal): Decimal {
     const decCurrentPrice = new Decimal(currentPrice);
     if (decCurrentPrice.isNegative() || decCurrentPrice.isZero()) {
       throw new Error('Invalid current price for PnL calculation');
@@ -231,7 +231,7 @@ export class Position {
     }
   }
 
-  calculateRealizedLoss(executionPrice: number | string | Decimal, executedSize: number | string | Decimal | null = null): Decimal {
+  calculateRealizedLoss(executionPrice: Decimal, executedSize: Decimal | null = null): Decimal {
     const decExecutionPrice = new Decimal(executionPrice);
     const decExecutedSize = executedSize ? new Decimal(executedSize) : this.size;
     
@@ -255,9 +255,9 @@ export class Position {
 
   static calculateRealizedLossStatic(
     side: PositionSide,
-    entryPrice: number | string | Decimal,
-    executionPrice: number | string | Decimal,
-    executedSize: number | string | Decimal
+    entryPrice: Decimal,
+    executionPrice: Decimal,
+    executedSize: Decimal
   ): Decimal {
     const decEntryPrice = new Decimal(entryPrice);
     const decExecutionPrice = new Decimal(executionPrice);
@@ -283,9 +283,9 @@ export class Position {
 
   static calculateUnrealizedPnLStatic(
     side: PositionSide,
-    entryPrice: number | string | Decimal,
-    currentPrice: number | string | Decimal,
-    size: number | string | Decimal
+    entryPrice: Decimal,
+    currentPrice: Decimal,
+    size: Decimal
   ): Decimal {
     const decEntryPrice = new Decimal(entryPrice);
     const decCurrentPrice = new Decimal(currentPrice);
@@ -306,15 +306,15 @@ export class Position {
     return this.size.times(this.avgEntryPrice);
   }
 
-  getPositionValueAtPrice(price: number | string | Decimal): Decimal {
+  getPositionValueAtPrice(price: Decimal): Decimal {
     return this.size.times(new Decimal(price));
   }
 
-  getNotionalValue(currentPrice: number | string | Decimal): Decimal {
+  getNotionalValue(currentPrice: Decimal): Decimal {
     return this.size.times(new Decimal(currentPrice));
   }
 
-  getRoE(currentPrice: number | string | Decimal | null = null): Decimal {
+  getRoE(currentPrice: Decimal | null = null): Decimal {
     if (this.initialMargin.isZero() || this.initialMargin === null || this.initialMargin === undefined) {
       return new Decimal(0);
     }
@@ -342,7 +342,7 @@ export class Position {
     }
   }
 
-  calculateADLScore(totalBalance: number | string | Decimal, currentPrice: number | string | Decimal): number {
+  calculateADLScore(totalBalance: Decimal, currentPrice: Decimal): number {
     const decTotalBalance = new Decimal(totalBalance);
     if (decTotalBalance.isNegative() || decTotalBalance.isZero()) {
       return 0;
@@ -374,7 +374,7 @@ export class Position {
     return this.side === 'long' ? 1 : -1;
   }
 
-  toJSON(currentPrice: number | string | Decimal | null = null): PositionJSON {
+  toJSON(currentPrice: Decimal | null = null): PositionJSON {
     return {
       userId: this.userId,
       side: this.side,
@@ -408,7 +408,7 @@ export class LiquidationPosition extends Position {
   public attempts: number;
   public lastAttemptTime: number | null;
 
-  constructor(originalPosition: Position, bankruptcyPrice: number | string | Decimal, userId: string, liquidationId: string) {
+  constructor(originalPosition: Position, bankruptcyPrice: Decimal, userId: string, liquidationId: string) {
     // Create a copy of the original position but with liquidation engine as owner
     // We need to preserve all original position properties for inheritance
     super(userId, originalPosition.leverage);

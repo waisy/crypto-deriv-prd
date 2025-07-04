@@ -88,9 +88,9 @@ export class ADLEngine {
         } else {
           unrealizedPnL = Position.calculateUnrealizedPnLStatic(
             position.side || 'long', 
-            avgEntryPrice.toString(), 
-            currentPriceDec.toString(), 
-            size.toString()
+            avgEntryPrice, 
+            currentPriceDec, 
+            size
           );
         }
       } catch (pnlError) {
@@ -124,7 +124,7 @@ export class ADLEngine {
     }
   }
 
-  getADLQueue(positions: Position[], currentPrice: Decimal | number | string): ADLQueueItem[] {
+  getADLQueue(positions: Position[], currentPrice: Decimal): ADLQueueItem[] {
     const queue: ADLQueueItem[] = [];
     
     positions.forEach(position => {
@@ -176,7 +176,7 @@ export class ADLEngine {
     lePosition: ADLLiquidationPosition, 
     allUserPositions: Map<string, Position>, 
     users: Map<string, User>, 
-    markPrice: Decimal | number | string, 
+    markPrice: Decimal, 
     requiredSocializationAmount: number = 0
   ): ADLPlanResult {
     try {
@@ -340,7 +340,7 @@ export class ADLEngine {
     positions: Map<string, Position>, 
     requiredAmount: number, 
     bankruptPosition: Position, 
-    currentPrice?: Decimal | number | string
+    currentPrice?: Decimal
   ): ADLSimulationResult {
     const priceToUse = currentPrice || bankruptPosition.avgEntryPrice;
     const adlQueue = this.getADLQueue(Array.from(positions.values()), priceToUse);
@@ -374,7 +374,7 @@ export class ADLEngine {
     };
   }
 
-  getQueue(positions: Map<string, Position>, users: Map<string, User>, currentPrice: Decimal | number | string): ADLQueueItem[] {
+  getQueue(positions: Map<string, Position>, users: Map<string, User>, currentPrice: Decimal): ADLQueueItem[] {
     if (!positions || !users || !currentPrice) {
       return [];
     }
