@@ -11,6 +11,56 @@ const { MarginMonitor } = require('./margin-monitor.ts');
 const PositionLiquidationEngine = require('./liquidation-engine.ts');
 const { PerformanceOptimizer } = require('./performance-optimizer.ts');
 
+/**
+ * @typedef {Object} RiskLimits
+ * @property {number} maxPositionSize
+ * @property {number} maxLeverage
+ * @property {number} maxPositionValue
+ * @property {number} maxUserPositions
+ * @property {number} minOrderSize
+ */
+
+/**
+ * @typedef {'DEBUG' | 'INFO' | 'WARN' | 'ERROR'} LogLevel
+ */
+
+/**
+ * @typedef {Object} OrderData
+ * @property {string} userId
+ * @property {'buy' | 'sell'} side
+ * @property {number} size
+ * @property {number} price
+ * @property {'limit' | 'market'} orderType
+ * @property {number} [leverage]
+ */
+
+/**
+ * @typedef {Object} TradeMatch
+ * @property {Object} buyOrder
+ * @property {Object} sellOrder
+ * @property {Decimal} price
+ * @property {Decimal} size
+ */
+
+/**
+ * @typedef {Object} ZeroSumResult
+ * @property {Object} quantities
+ * @property {string} quantities.long
+ * @property {string} quantities.short
+ * @property {string} quantities.difference
+ * @property {Object} pnl
+ * @property {string} pnl.long
+ * @property {string} pnl.short
+ * @property {string} pnl.total
+ * @property {boolean} isQtyBalanced
+ * @property {boolean} isPnLBalanced
+ * @property {number} userPositions
+ * @property {number} liquidationPositions
+ */
+
+/**
+ * Main Exchange class that orchestrates all trading operations
+ */
 class Exchange {
   constructor() {
     this.orderBook = new OrderBook();
@@ -57,6 +107,12 @@ class Exchange {
   }
 
   // Logging utilities
+  /**
+   * Log a message with the specified level
+   * @param {LogLevel} level - The log level
+   * @param {string} message - The message to log
+   * @param {any} [data] - Optional data to log
+   */
   log(level, message, data = null) {
     const levels = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
     if (levels[level] >= levels[this.logLevel]) {
@@ -69,6 +125,10 @@ class Exchange {
   }
 
   // Zero-sum invariant validation
+  /**
+   * Calculate zero-sum verification for all positions
+   * @returns {ZeroSumResult} The zero-sum calculation result
+   */
   calculateZeroSum() {
     let totalLongPnL = new Decimal(0);
     let totalShortPnL = new Decimal(0);
@@ -162,6 +222,11 @@ class Exchange {
     return result;
   }
 
+  /**
+   * Log zero-sum check results
+   * @param {string} context - Context description for the check
+   * @returns {ZeroSumResult} The zero-sum calculation result
+   */
   logZeroSumCheck(context) {
     const zeroSum = this.calculateZeroSum();
     if (!zeroSum.isQtyBalanced || !zeroSum.isPnLBalanced) {
@@ -182,8 +247,10 @@ class Exchange {
     return zeroSum;
   }
 
+  /**
+   * Initialize default users with starting balances
+   */
   initializeUsers() {
-    // Add default users with initial balances
     const bob = new User('bob', 'Bob', new Decimal(100000)); // $100k balance
     const eve = new User('eve', 'Eve', new Decimal(100000)); // $100k balance
     const alice = new User('alice', 'Alice', new Decimal(100000)); // $100k balance
@@ -193,6 +260,11 @@ class Exchange {
     this.users.set('alice', alice);
   }
 
+  /**
+   * Handle incoming WebSocket messages
+   * @param {any} data - The message data
+   * @returns {Promise<any>} The response data
+   */
   async handleMessage(data) {
     switch (data.type) {
       case 'place_order':
@@ -228,6 +300,11 @@ class Exchange {
     }
   }
 
+  /**
+   * Place a new order in the exchange
+   * @param {OrderData} orderData - The order data
+   * @returns {Promise<any>} The order result
+   */
   async placeOrder(orderData) {
     const { userId, side, size, price, orderType, leverage } = orderData;
     
@@ -762,6 +839,11 @@ class Exchange {
     };
   }
 
+  /**
+   * Update mark price and trigger liquidation checks
+   * @param {number} newPrice - The new mark price
+   * @returns {Promise<any>} The update result with liquidations
+   */
   async updateMarkPrice(newPrice) {
     const oldPrice = this.currentMarkPrice;
     this.currentMarkPrice = new Decimal(newPrice);
@@ -774,7 +856,18 @@ class Exchange {
       changePercent: this.currentMarkPrice.minus(oldPrice).dividedBy(oldPrice).times(100).toFixed(2) + '%'
     });
     
-    this.updateAllUserUnrealizedPnL();
+    this.log('DEBUG', 'Updating PnL for all positions');
+    this.positions.forEach(position => {
+      const currentPnL = position.calculateUnrealizedPnL(this.currentMarkPrice);
+      this.log('DEBUG', `Position PnL updated`, {
+        userId: position.userId,
+        side: position.side,
+        size: position.size.toString(),
+        entryPrice: position.avgEntryPrice.toString(),
+        currentPrice: this.currentMarkPrice.toString(),
+        unrealizedPnL: currentPnL.toString()
+      });
+    });
     
     this.logZeroSumCheck('After mark price update');
     
@@ -819,6 +912,10 @@ class Exchange {
     });
   }
 
+  /**
+   * Check all positions for liquidation requirements
+   * @returns {Promise<Array>} Array of liquidation results
+   */
   async checkLiquidations() {
     const liquidations = [];
     this.log('DEBUG', `Checking liquidations for ${this.positions.size} positions`);
@@ -1367,6 +1464,15 @@ class Exchange {
     };
   }
 
+  /**
+   * Validate risk limits for an order
+   * @param {string} userId - The user ID
+   * @param {'buy' | 'sell'} side - The order side
+   * @param {number} size - The order size
+   * @param {number} price - The order price
+   * @param {number} leverage - The leverage
+   * @throws {Error} If risk limits are exceeded
+   */
   validateRiskLimits(userId, side, size, price, leverage) {
     const decSize = new Decimal(size);
     const decPrice = new Decimal(price);
@@ -1395,6 +1501,10 @@ class Exchange {
     }
   }
 
+  /**
+   * Reset the exchange state to initial conditions
+   * @returns {any} The reset result
+   */
   resetState() {
     console.log('🔄 RESETTING EXCHANGE STATE...');
     
@@ -1437,6 +1547,10 @@ class Exchange {
     };
   }
 
+  /**
+   * Get the current state of the exchange
+   * @returns {any} The complete exchange state
+   */
   getState() {
     // Calculate correct margin ratios using MarginCalculator
     const usersWithCorrectMarginRatio = Array.from(this.users.values()).map(user => {
