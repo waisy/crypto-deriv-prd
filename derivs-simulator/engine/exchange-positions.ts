@@ -58,16 +58,16 @@ export class ExchangePositionManager {
       position = new Position(userId, trade.leverage, trade);
       positions.set(positionKey, position);
       
-      // Update user margin for new position
+      // NOTE: Margin was already reserved during order placement
+      // No need to add it again here - that would be double counting
       const reservedMargin = position.initialMargin;
-      user.usedMargin = user.usedMargin.plus(reservedMargin);
       
       this.log('DEBUG', `Position created successfully`, {
         positionSize: position.size.toString(),
         positionSide: position.side,
         reservedMargin: reservedMargin.toString(),
         userUsedMargin: user.usedMargin.toString(),
-        note: 'Margin already reserved at order placement'
+        note: 'Margin already reserved at order placement - no double counting'
       });
     } else {
       this.log('INFO', `📊 ADDING TRADE TO EXISTING POSITION`, {
