@@ -136,10 +136,7 @@ export class Position {
   }
 
   addSize(additionalSize: Decimal, price: Decimal): void {
-    const decAdditionalSize = new Decimal(additionalSize);
-    const decPrice = new Decimal(price);
-
-    if (decAdditionalSize.isNegative() || decAdditionalSize.isZero() || decPrice.isNegative() || decPrice.isZero()) {
+    if (additionalSize.isNegative() || additionalSize.isZero() || price.isNegative() || price.isZero()) {
       throw new Error('Invalid size or price for adding to position');
     }
 
@@ -157,14 +154,11 @@ export class Position {
   }
 
   reduceSize(reductionSize: Decimal, price: Decimal): Decimal {
-    const decReductionSize = new Decimal(reductionSize);
-    const decPrice = new Decimal(price);
-
-    if (decReductionSize.isNegative() || decReductionSize.isZero() || decPrice.isNegative() || decPrice.isZero()) {
+    if (reductionSize.isNegative() || reductionSize.isZero() || price.isNegative() || price.isZero()) {
       throw new Error('Invalid size or price for reducing position');
     }
     
-    if (decReductionSize.greaterThan(this.size)) {
+    if (reductionSize.greaterThan(this.size)) {
       throw new Error('Cannot reduce position by more than current size');
     }
 
@@ -174,9 +168,9 @@ export class Position {
     
     let realizedPnL: Decimal;
     if (currentSide === 'long') {
-      realizedPnL = decPrice.minus(currentAvgPrice).times(decReductionSize);
+      realizedPnL = price.minus(currentAvgPrice).times(reductionSize);
     } else {
-      realizedPnL = currentAvgPrice.minus(decPrice).times(decReductionSize);
+      realizedPnL = currentAvgPrice.minus(price).times(reductionSize);
     }
 
     // Create closing trade (opposite side of current position)
@@ -192,20 +186,18 @@ export class Position {
   }
 
   closePosition(price: Decimal): Decimal {
-    const decPrice = new Decimal(price);
-    if (decPrice.isNegative() || decPrice.isZero()) {
+    if (price.isNegative() || price.isZero()) {
       throw new Error('Invalid price for closing position');
     }
 
-    const realizedPnL = this.reduceSize(this.size, decPrice);
+    const realizedPnL = this.reduceSize(this.size, price);
     return realizedPnL;
   }
 
   updatePnL(currentPrice: Decimal): Decimal {
     // This method is kept for backward compatibility
     // In trade-based system, PnL is calculated on demand
-    const decCurrentPrice = new Decimal(currentPrice);
-    if (decCurrentPrice.isNegative() || decCurrentPrice.isZero()) {
+    if (currentPrice.isNegative() || currentPrice.isZero()) {
       throw new Error('Invalid current price for PnL calculation');
     }
 
@@ -214,8 +206,7 @@ export class Position {
   }
 
   calculateUnrealizedPnL(currentPrice: Decimal): Decimal {
-    const decCurrentPrice = new Decimal(currentPrice);
-    if (decCurrentPrice.isNegative() || decCurrentPrice.isZero()) {
+    if (currentPrice.isNegative() || currentPrice.isZero()) {
       throw new Error('Invalid current price for PnL calculation');
     }
 
@@ -225,17 +216,16 @@ export class Position {
     }
 
     if (this.side === 'long') {
-      return decCurrentPrice.minus(this.avgEntryPrice).times(this.size);
+      return currentPrice.minus(this.avgEntryPrice).times(this.size);
     } else {
-      return this.avgEntryPrice.minus(decCurrentPrice).times(this.size);
+      return this.avgEntryPrice.minus(currentPrice).times(this.size);
     }
   }
 
   calculateRealizedLoss(executionPrice: Decimal, executedSize: Decimal | null = null): Decimal {
-    const decExecutionPrice = new Decimal(executionPrice);
-    const decExecutedSize = executedSize ? new Decimal(executedSize) : this.size;
+    const decExecutedSize = executedSize || this.size;
     
-    if (decExecutionPrice.isNegative() || decExecutionPrice.isZero()) {
+    if (executionPrice.isNegative() || executionPrice.isZero()) {
       throw new Error('Invalid execution price for loss calculation');
     }
 
@@ -243,10 +233,10 @@ export class Position {
     let loss: Decimal;
     if (this.side === 'long') {
       // Long: loss when price drops below entry
-      loss = this.avgEntryPrice.minus(decExecutionPrice).times(decExecutedSize);
+      loss = this.avgEntryPrice.minus(executionPrice).times(decExecutedSize);
     } else {
       // Short: loss when price rises above entry  
-      loss = decExecutionPrice.minus(this.avgEntryPrice).times(decExecutedSize);
+      loss = executionPrice.minus(this.avgEntryPrice).times(decExecutedSize);
     }
     
     // Return max(0, loss) to ensure we only return positive losses
@@ -259,11 +249,7 @@ export class Position {
     executionPrice: Decimal,
     executedSize: Decimal
   ): Decimal {
-    const decEntryPrice = new Decimal(entryPrice);
-    const decExecutionPrice = new Decimal(executionPrice);
-    const decExecutedSize = new Decimal(executedSize);
-    
-    if (decExecutionPrice.isNegative() || decExecutionPrice.isZero()) {
+    if (executionPrice.isNegative() || executionPrice.isZero()) {
       throw new Error('Invalid execution price for loss calculation');
     }
 
@@ -271,10 +257,10 @@ export class Position {
     let loss: Decimal;
     if (side === 'long') {
       // Long: loss when price drops below entry
-      loss = decEntryPrice.minus(decExecutionPrice).times(decExecutedSize);
+      loss = entryPrice.minus(executionPrice).times(executedSize);
     } else {
       // Short: loss when price rises above entry  
-      loss = decExecutionPrice.minus(decEntryPrice).times(decExecutedSize);
+      loss = executionPrice.minus(entryPrice).times(executedSize);
     }
     
     // Return max(0, loss) to ensure we only return positive losses
@@ -287,18 +273,14 @@ export class Position {
     currentPrice: Decimal,
     size: Decimal
   ): Decimal {
-    const decEntryPrice = new Decimal(entryPrice);
-    const decCurrentPrice = new Decimal(currentPrice);
-    const decSize = new Decimal(size);
-    
-    if (decCurrentPrice.isNegative() || decCurrentPrice.isZero()) {
+    if (currentPrice.isNegative() || currentPrice.isZero()) {
       throw new Error('Invalid current price for PnL calculation');
     }
 
     if (side === 'long') {
-      return decCurrentPrice.minus(decEntryPrice).times(decSize);
+      return currentPrice.minus(entryPrice).times(size);
     } else {
-      return decEntryPrice.minus(decCurrentPrice).times(decSize);
+      return entryPrice.minus(currentPrice).times(size);
     }
   }
 
@@ -307,11 +289,11 @@ export class Position {
   }
 
   getPositionValueAtPrice(price: Decimal): Decimal {
-    return this.size.times(new Decimal(price));
+    return this.size.times(price);
   }
 
   getNotionalValue(currentPrice: Decimal): Decimal {
-    return this.size.times(new Decimal(currentPrice));
+    return this.size.times(currentPrice);
   }
 
   getRoE(currentPrice: Decimal | null = null): Decimal {

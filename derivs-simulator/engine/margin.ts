@@ -25,25 +25,19 @@ export class MarginCalculator {
   }
 
   calculateInitialMargin(size: Decimal, price: Decimal, leverage: Decimal): Decimal {
-    const decSize = new Decimal(size);
-    const decPrice = new Decimal(price);
-    const decLeverage = new Decimal(leverage);
-    const positionValue = decSize.times(decPrice);
-    return positionValue.dividedBy(decLeverage);
+    const positionValue = size.times(price);
+    return positionValue.dividedBy(leverage);
   }
 
   calculateMaintenanceMargin(size: Decimal, price: Decimal): Decimal {
-
     const positionValue = size.times(price);
     return positionValue.times(this.maintenanceMarginRate);
   }
 
   calculateMarginRequirements(position: PositionForMargin, currentPrice: Decimal): MarginRequirements {
-    const decCurrentPrice = new Decimal(currentPrice);
-    
     return {
       initial: this.calculateInitialMargin(position.size, position.avgEntryPrice, position.leverage),
-      maintenance: this.calculateMaintenanceMargin(position.size, decCurrentPrice),
+      maintenance: this.calculateMaintenanceMargin(position.size, currentPrice),
       used: this.calculateInitialMargin(position.size, position.avgEntryPrice, position.leverage)
     };
   }
@@ -51,8 +45,8 @@ export class MarginCalculator {
   // Linear contract liquidation price calculation
   calculateLiquidationPrice(position: PositionForMargin): Decimal {
     const { side } = position;
-    const avgEntryPrice = new Decimal(position.avgEntryPrice);
-    const leverage = new Decimal(position.leverage);
+    const avgEntryPrice = position.avgEntryPrice;
+    const leverage = position.leverage;
     const mmr = this.maintenanceMarginRate;
 
     if (side === 'long') {
@@ -67,9 +61,9 @@ export class MarginCalculator {
   // Calculate bankruptcy price (where all margin is lost)
   calculateBankruptcyPrice(position: PositionForMargin): Decimal {
     const { side } = position;
-    const avgEntryPrice = new Decimal(position.avgEntryPrice);
-    const initialMargin = new Decimal(position.initialMargin);
-    const size = new Decimal(position.size);
+    const avgEntryPrice = position.avgEntryPrice;
+    const initialMargin = position.initialMargin;
+    const size = position.size;
     
     // Margin-based calculation: more robust than leverage-based
     // Bankruptcy price is where total loss equals initial margin
@@ -86,23 +80,19 @@ export class MarginCalculator {
 
   // Check if position should be liquidated
   shouldLiquidate(position: PositionForMargin, currentPrice: Decimal): boolean {
-    const decCurrentPrice = new Decimal(currentPrice);
     const liquidationPrice = this.calculateLiquidationPrice(position);
     
     if (position.side === 'long') {
-      return decCurrentPrice.lessThanOrEqualTo(liquidationPrice);
+      return currentPrice.lessThanOrEqualTo(liquidationPrice);
     } else {
-      return decCurrentPrice.greaterThanOrEqualTo(liquidationPrice);
+      return currentPrice.greaterThanOrEqualTo(liquidationPrice);
     }
   }
 
   // Calculate margin ratio
   calculateMarginRatio(position: PositionForMargin, availableBalance: Decimal, currentPrice: Decimal): Decimal | null {
-    const decCurrentPrice = new Decimal(currentPrice);
-    const decAvailableBalance = new Decimal(availableBalance);
-
-    const maintenanceMargin = this.calculateMaintenanceMargin(position.size, decCurrentPrice);
-    const equity = decAvailableBalance.plus(position.unrealizedPnL);
+    const maintenanceMargin = this.calculateMaintenanceMargin(position.size, currentPrice);
+    const equity = availableBalance.plus(position.unrealizedPnL);
     
     if (maintenanceMargin.isZero()) return null;
     return equity.dividedBy(maintenanceMargin).times(100);
@@ -110,17 +100,11 @@ export class MarginCalculator {
 
   // Calculate maximum position size for given margin
   calculateMaxPositionSize(availableMargin: Decimal, price: Decimal, leverage: Decimal): Decimal {
-    const decAvailableMargin = new Decimal(availableMargin);
-    const decPrice = new Decimal(price);
-    const decLeverage = new Decimal(leverage);
-    return decAvailableMargin.times(decLeverage).dividedBy(decPrice);
+    return availableMargin.times(leverage).dividedBy(price);
   }
 
   // Calculate required margin for position size
   calculateRequiredMargin(size: Decimal, price: Decimal, leverage: Decimal): Decimal {
-    const decSize = new Decimal(size);
-    const decPrice = new Decimal(price);
-    const decLeverage = new Decimal(leverage);
-    return decSize.times(decPrice).dividedBy(decLeverage);
+    return size.times(price).dividedBy(leverage);
   }
 } 

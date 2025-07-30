@@ -110,7 +110,7 @@ export class MarginMonitor {
     }
     
     // Create a position object that satisfies PositionForMargin interface
-    const unrealizedPnL = position.unrealizedPnL ? new Decimal(position.unrealizedPnL) : new Decimal(0);
+    const unrealizedPnL = position.unrealizedPnL || new Decimal(0);
     const positionForMargin: PositionForMargin = {
       ...position,
       unrealizedPnL: unrealizedPnL
@@ -126,9 +126,8 @@ export class MarginMonitor {
     const marginRatio = this.marginCalculator.calculateMarginRatio(positionForMargin, user.availableBalance, currentPrice) || new Decimal(0);
     
     // Calculate distance to liquidation
-    const currentPriceDecimal = new Decimal(currentPrice);
-    const distanceToLiquidation = liquidationPrice.minus(currentPriceDecimal).abs().toNumber();
-    const distancePercentage = liquidationPrice.minus(currentPriceDecimal).abs().dividedBy(currentPriceDecimal).times(100).toNumber();
+    const distanceToLiquidation = liquidationPrice.minus(currentPrice).abs().toNumber();
+    const distancePercentage = liquidationPrice.minus(currentPrice).abs().dividedBy(currentPrice).times(100).toNumber();
     
     return {
       marginRatio,
@@ -236,7 +235,7 @@ export class MarginMonitor {
     if (!this.marginCalculator) return 0;
     
     const maintenanceMargin = this.marginCalculator.calculateMaintenanceMargin(position.size, currentPrice);
-    const unrealizedPnL = position.unrealizedPnL ? new Decimal(position.unrealizedPnL) : new Decimal(0);
+    const unrealizedPnL = position.unrealizedPnL || new Decimal(0);
     const currentEquity = user.availableBalance.plus(unrealizedPnL);
     const requiredEquity = maintenanceMargin.times(targetRatio).dividedBy(100);
     const additionalMarginNeeded = Decimal.max(0, requiredEquity.minus(currentEquity));

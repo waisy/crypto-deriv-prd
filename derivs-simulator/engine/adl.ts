@@ -84,7 +84,7 @@ export class ADLEngine {
         if (typeof position.calculateUnrealizedPnL === 'function') {
           unrealizedPnL = position.calculateUnrealizedPnL(currentPriceDec);
         } else if (position.unrealizedPnL) {
-          unrealizedPnL = new Decimal(position.unrealizedPnL);
+          unrealizedPnL = position.unrealizedPnL;
         } else {
           unrealizedPnL = Position.calculateUnrealizedPnLStatic(
             position.side || 'long', 
@@ -234,18 +234,17 @@ export class ADLEngine {
         return bScore - aScore;
       });
       
-      const markPriceDec = new Decimal(markPrice);
       let adlPrice: Decimal;
       
       if (requiredSocializationAmount > 0) {
         adlPrice = this.calculateADLSocializationPrice(
           lePosition,
           profitableCounterparties,
-          markPriceDec,
+          markPrice,
           requiredSocializationAmount
         );
       } else {
-        adlPrice = markPriceDec;
+        adlPrice = markPrice;
       }
 
       const adlTrades: ADLTrade[] = [];
@@ -258,7 +257,7 @@ export class ADLEngine {
         if (!counterpartyPosition) continue;
 
         try {
-          const availableSize = new Decimal(counterpartyPosition.size);
+          const availableSize = counterpartyPosition.size;
           const tradeSize = Decimal.min(remainingSizeToClose, availableSize);
           
           adlTrades.push({
@@ -288,7 +287,7 @@ export class ADLEngine {
         trades: adlTrades,
         socializationAmount: requiredSocializationAmount || 0,
         adlPrice: adlPrice.toString(),
-        markPrice: markPriceDec.toString()
+        markPrice: markPrice.toString()
       };
     } catch (error) {
       console.error('❌ Catastrophic ADL planning error:', error);

@@ -77,20 +77,20 @@ export class Trade {
     this.id = options.id || `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.userId = userId;
     this.side = side;
-    this.size = new Decimal(size);
-    this.price = new Decimal(price);
+    this.size = size;
+    this.price = price;
     this.timestamp = options.timestamp || Date.now();
     
     // Optional properties
-    this.fee = new Decimal(options.fee || 0);
+    this.fee = options.fee || new Decimal(0);
     this.leverage = options.leverage || 1;
     this.orderId = options.orderId || null;
     this.counterparty = options.counterparty || null;
     this.tradeType = options.tradeType || 'normal';
     
     // Market context
-    this.markPrice = options.markPrice ? new Decimal(options.markPrice) : null;
-    this.indexPrice = options.indexPrice ? new Decimal(options.indexPrice) : null;
+    this.markPrice = options.markPrice || null;
+    this.indexPrice = options.indexPrice || null;
     
     // Calculated properties
     this.notionalValue = this.size.times(this.price);
@@ -171,13 +171,12 @@ export class Trade {
 
   // Calculate PnL if this trade closes a position at entry price
   calculatePnL(entryPrice: Decimal): Decimal {
-    const decEntryPrice = new Decimal(entryPrice);
     if (this.side === 'sell') {
       // Selling: PnL = (sell price - entry price) * size
-      return this.price.minus(decEntryPrice).times(this.size);
+      return this.price.minus(entryPrice).times(this.size);
     } else {
       // Buying to close short: PnL = (entry price - buy price) * size
-      return decEntryPrice.minus(this.price).times(this.size);
+      return entryPrice.minus(this.price).times(this.size);
     }
   }
 

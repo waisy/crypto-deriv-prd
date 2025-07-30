@@ -25,7 +25,7 @@ export class User {
   constructor(id: string, name: string, initialBalance: Decimal) {
     this.id = id;
     this.name = name;
-    this.availableBalance = new Decimal(initialBalance);
+    this.availableBalance = initialBalance;
     this.usedMargin = new Decimal(0);
     this.unrealizedPnL = new Decimal(0);
     this.leverage = 10; // Default 10x leverage
@@ -37,42 +37,37 @@ export class User {
   }
 
   updateAvailableBalance(amount: Decimal): void {
-    const decAmount = new Decimal(amount);
-    this.availableBalance = this.availableBalance.plus(decAmount);
+    this.availableBalance = this.availableBalance.plus(amount);
   }
 
   deposit(amount: Decimal): void {
-    const decAmount = new Decimal(amount);
-    this.availableBalance = this.availableBalance.plus(decAmount);
+    this.availableBalance = this.availableBalance.plus(amount);
   }
 
   withdraw(amount: Decimal): void {
-    const decAmount = new Decimal(amount);
-    if (decAmount.greaterThan(this.availableBalance)) {
+    if (amount.greaterThan(this.availableBalance)) {
       throw new Error('Insufficient available balance for withdrawal');
     }
-    this.availableBalance = this.availableBalance.minus(decAmount);
+    this.availableBalance = this.availableBalance.minus(amount);
   }
 
   updatePnL(unrealizedPnL: Decimal): void {
-    this.unrealizedPnL = new Decimal(unrealizedPnL);
+    this.unrealizedPnL = unrealizedPnL;
   }
 
   // New method to handle P&L realization
   realizePnL(realizedAmount: Decimal): void {
-    const decAmount = new Decimal(realizedAmount);
-    this.availableBalance = this.availableBalance.plus(decAmount);
-    this.totalPnL = this.totalPnL.plus(decAmount);
+    this.availableBalance = this.availableBalance.plus(realizedAmount);
+    this.totalPnL = this.totalPnL.plus(realizedAmount);
   }
 
   // New method to release margin back to available balance
   releaseMargin(marginAmount: Decimal): void {
-    const decAmount = new Decimal(marginAmount);
-    if (decAmount.greaterThan(this.usedMargin)) {
+    if (marginAmount.greaterThan(this.usedMargin)) {
       throw new Error('Cannot release more margin than currently used');
     }
-    this.usedMargin = this.usedMargin.minus(decAmount);
-    this.availableBalance = this.availableBalance.plus(decAmount);
+    this.usedMargin = this.usedMargin.minus(marginAmount);
+    this.availableBalance = this.availableBalance.plus(marginAmount);
   }
 
   getEquity(): Decimal {

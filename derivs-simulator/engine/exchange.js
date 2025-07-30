@@ -183,9 +183,10 @@ class Exchange {
   }
 
   initializeUsers() {
-    const bob = new User('bob', 'Bob', 100000); // $100k balance
-    const eve = new User('eve', 'Eve', 100000); // $100k balance
-    const alice = new User('alice', 'Alice', 100000); // $100k balance
+    // Add default users with initial balances
+    const bob = new User('bob', 'Bob', new Decimal(100000)); // $100k balance
+    const eve = new User('eve', 'Eve', new Decimal(100000)); // $100k balance
+    const alice = new User('alice', 'Alice', new Decimal(100000)); // $100k balance
     
     this.users.set('bob', bob);
     this.users.set('eve', eve);
@@ -412,7 +413,7 @@ class Exchange {
     const tradePrice = isADLTrade ? this.adlEngine.getLastSocializationPrice() || decPrice : decPrice;
     
     // Create Trade objects for both sides
-    const buyTrade = new Trade(buyOrder.userId, 'buy', size, tradePrice, {
+    const buyTrade = new Trade(buyOrder.userId, 'buy', decSize, tradePrice, {
       orderId: buyOrder.id,
       counterparty: sellOrder.userId,
       tradeType: isADLTrade ? 'adl' : 'normal',
@@ -420,7 +421,7 @@ class Exchange {
       markPrice: this.currentMarkPrice
     });
     
-    const sellTrade = new Trade(sellOrder.userId, 'sell', size, tradePrice, {
+    const sellTrade = new Trade(sellOrder.userId, 'sell', decSize, tradePrice, {
       orderId: sellOrder.id,
       counterparty: buyOrder.userId,
       tradeType: isADLTrade ? 'adl' : 'normal',
@@ -683,7 +684,9 @@ class Exchange {
     
     // Convert to Trade object and use new system
     const tradeSide = side === 'long' ? 'buy' : 'sell';
-    const trade = new Trade(userId, tradeSide, size, price, {
+    const decSize = new Decimal(size);
+    const decPrice = new Decimal(price);
+    const trade = new Trade(userId, tradeSide, decSize, decPrice, {
       tradeType: 'legacy_conversion',
       leverage: leverage || 1
     });
