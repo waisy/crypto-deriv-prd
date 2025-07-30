@@ -227,16 +227,14 @@ export class Exchange {
   }
 
   public async manualLiquidate(userId: string): Promise<any> {
-    this.logZeroSumCheck('Before manual liquidation');
-    
     const result = await this.liquidationManager.manualLiquidate(
       userId,
       this.stateManager.state.positions,
       this.stateManager.state.users,
+      this.stateManager.state.currentMarkPrice,
       this.stateManager.liquidationEngine,
       this.stateManager.marginCalculator,
-      this.stateManager.positionLiquidationEngine,
-      this.stateManager.state.currentMarkPrice
+      this.stateManager.positionLiquidationEngine
     );
     
     this.logZeroSumCheck('After manual liquidation and position transfer');
@@ -280,209 +278,24 @@ export class Exchange {
     console.log(`Method: ${method.toUpperCase()}`);
     this.log('INFO', `🎯 MANUAL LIQUIDATION STEP REQUESTED: ${method.toUpperCase()}`);
     
-    const lePositions = this.stateManager.positionLiquidationEngine.positions;
-    const results: any[] = [];
-    let executedCount = 0;
-
-    switch (method.toLowerCase()) {
-      case 'adl':
-        this.log('INFO', `🔄 EXECUTING ADL for ${lePositions.length} liquidation positions`);
-        
-        for (const lePosition of lePositions) {
-          try {
-            // Skip positions without valid side
-            if (!lePosition.side) {
-              this.log('WARN', `Skipping liquidation position ${lePosition.id} - no valid side`);
-              continue;
-            }
-            
-            // Get the ADL socialization amount for this position
-            const socializationAmount = this.stateManager.state.adlSocializationAmounts.get(lePosition.id) || 0;
-            
-            console.log(`💰 ADL SOCIALIZATION CHECK for position ${lePosition.id}:`, {
-              socializationRequired: socializationAmount?.toString() || '0',
-              originalUser: lePosition.originalUserId
-            });
-            
-            // Create ADL-compatible position object
-            const adlPosition = {
-              id: lePosition.id,
-              side: lePosition.side as 'long' | 'short',  // Type assertion since we checked above
-              size: lePosition.size,  // Explicitly include getter property
-              userId: lePosition.originalUserId
-            };
-            
-            // Plan the ADL trades first with socialization amount
-            const adlPlan = this.stateManager.adlEngine.planADL(
-              adlPosition, 
-              this.stateManager.state.positions, 
-              this.stateManager.state.users, 
-              this.stateManager.state.currentMarkPrice, 
-              socializationAmount
-            );
-            
-            if (!adlPlan.success) {
-              this.log('ERROR', `❌ ADL PLANNING FAILED for position ${lePosition.id}`, adlPlan.error);
-              results.push({ positionId: lePosition.id, method: 'adl', success: false, error: adlPlan.error });
-              continue;
-            }
-
-            this.log('INFO', `✅ ADL PLAN CREATED for position ${lePosition.id}`, { trades: adlPlan.trades });
-
-            // Execute the forced trades from the plan
-            for (const adlTrade of adlPlan.trades) {
-              const { counterpartyUserId, size, price } = adlTrade;
-              
-              // For ADL, we want to close both positions
-              // The LE position needs to do the OPPOSITE of their current side to close
-              const leSide = lePosition.side === 'long' ? 'sell' : 'buy';  // CLOSE by doing opposite
-              const counterpartySide = leSide === 'buy' ? 'sell' : 'buy';
-              
-              this.log('INFO', `🔨 PLANNING ADL TRADE`, {
-                lePositionId: lePosition.id,
-                originalUserId: lePosition.originalUserId,
-                counterparty: counterpartyUserId,
-                lePositionSide: lePosition.side,
-                closingSide: leSide,
-                size,
-                price
-              });
-              
-              // Create forced orders for both sides
-              const leOrder = {
-                id: `le_adl_${Date.now()}_${lePosition.id}`,
-                userId: 'liquidation_engine',
-                side: leSide,
-                size: new Decimal(size),
-                remainingSize: new Decimal(size),
-                filledSize: new Decimal(0),
-                price: new Decimal(price),
-                avgFillPrice: new Decimal(0),
-                type: 'adl',
-                leverage: 1,
-                timestamp: Date.now(),
-                lastUpdateTime: Date.now(),
-                status: 'NEW',
-                timeInForce: 'IOC',
-                fills: [],
-                totalValue: new Decimal(0),
-                commission: new Decimal(0),
-                marginReserved: new Decimal(0),
-                isLiquidation: true,
-                lePositionId: lePosition.id
-              };
-              
-              const counterpartyOrder = {
-                id: `adl_counterparty_${Date.now()}_${counterpartyUserId}`,
-                userId: counterpartyUserId,
-                side: counterpartySide,
-                size: new Decimal(size),
-                remainingSize: new Decimal(size),
-                filledSize: new Decimal(0),
-                price: new Decimal(price),
-                avgFillPrice: new Decimal(0),
-                type: 'adl',
-                leverage: 1,
-                timestamp: Date.now(),
-                lastUpdateTime: Date.now(),
-                status: 'NEW',
-                timeInForce: 'IOC',
-                fills: [],
-                totalValue: new Decimal(0),
-                commission: new Decimal(0),
-                marginReserved: new Decimal(0),
-                isADL: true
-              };
-              
-              // Execute the ADL trade
-              const match = {
-                buyOrder: leSide === 'buy' ? leOrder : counterpartyOrder,
-                sellOrder: leSide === 'sell' ? leOrder : counterpartyOrder,
-                price: new Decimal(price),
-                size: new Decimal(size)
-              };
-              
-              // Process the trade using the order manager
-              const tradeResult = this.orderManager.processTrade(
-                match,
-                this.stateManager.state.currentMarkPrice,
-                this.stateManager.adlEngine,
-                this.stateManager.state.trades
-              );
-              
-              // Add trade record to history
-              this.stateManager.state.trades.push(tradeResult.tradeRecord);
-              
-              // Add trades to positions (this will handle ADL closure logic)
-              this.positionManager.addTradeToPosition(
-                tradeResult.buyTrade,
-                this.stateManager.state.users,
-                this.stateManager.state.positions,
-                this.stateManager.state.currentMarkPrice,
-                this.stateManager.positionLiquidationEngine
-              );
-              
-              this.positionManager.addTradeToPosition(
-                tradeResult.sellTrade,
-                this.stateManager.state.users,
-                this.stateManager.state.positions,
-                this.stateManager.state.currentMarkPrice,
-                this.stateManager.positionLiquidationEngine
-              );
-              
-              this.log('INFO', `✅ ADL TRADE EXECUTED`, {
-                lePositionId: lePosition.id,
-                counterparty: counterpartyUserId,
-                size: size.toString(),
-                price: price.toString()
-              });
-            }
-            
-            // Remove the position from liquidation engine
-            const closureResult = this.stateManager.positionLiquidationEngine.removePosition(
-              lePosition.id, 
-              'adl', 
-              new Decimal(adlPlan.trades[0].price)
-            );
-            
-            results.push({
-              positionId: lePosition.id,
-              method: 'adl',
-              executed: lePosition.size.toString(),
-              price: adlPlan.trades[0].price.toString(),
-              realizedPnL: closureResult?.realizedPnL?.toString() || '0',
-              success: true
-            });
-            
-            executedCount++;
-          } catch (error: any) {
-            this.log('ERROR', `ADL execution failed for position ${lePosition.id}:`, error);
-            results.push({
-              positionId: lePosition.id,
-              method: 'adl',
-              error: error.message,
-              success: false
-            });
-          }
-        }
-        break;
-        
-      default:
-        return {
-          success: false,
-          error: `Unknown liquidation method: ${method}`,
-          state: this.getState()
-        };
+    if (method.toLowerCase() === 'adl') {
+      const result = await this.liquidationManager.executeADLStep(
+        this.stateManager,
+        this.orderManager,
+        this.positionManager
+      );
+      
+      this.logZeroSumCheck('After ADL execution');
+      
+      return {
+        ...result,
+        state: this.getState()
+      };
     }
-
-    this.logZeroSumCheck('After ADL execution');
-
+    
     return {
-      success: true,
-      method,
-      executed: executedCount,
-      total: lePositions.length,
-      results,
+      success: false,
+      error: `Unknown liquidation method: ${method}`,
       state: this.getState()
     };
   }

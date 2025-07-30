@@ -363,7 +363,7 @@ export class Position {
       size: this.size.toString(),
       avgEntryPrice: this.avgEntryPrice.toString(),
       leverage: this.leverage,
-      unrealizedPnL: currentPrice ? this.calculateUnrealizedPnL(currentPrice).toString() : "0",
+      unrealizedPnL: currentPrice ? this.calculateUnrealizedPnL(currentPrice instanceof Decimal ? currentPrice : new Decimal(currentPrice)).toString() : "0",
       initialMargin: this.initialMargin.toString(),
       maintenanceMargin: this.maintenanceMargin.toString(),
       liquidationPrice: this.liquidationPrice.toString(),
