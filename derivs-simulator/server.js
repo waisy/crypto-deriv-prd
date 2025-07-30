@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
 // Import the exchange engine (TypeScript version)
-const { Exchange } = require('./engine/exchange');
+const { Exchange } = require('./engine/exchange.ts');
 const exchange = new Exchange();
 
 // WebSocket connections
