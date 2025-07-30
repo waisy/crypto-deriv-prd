@@ -100,9 +100,11 @@ app.get('/api/state', (req, res) => {
 
 app.get('/api/insurance-fund', (req, res) => {
   try {
-    const history = exchange.liquidationEngine.getInsuranceFundHistory();
-    const liquidations = exchange.liquidationEngine.getLiquidationHistory();
-    const summary = exchange.liquidationEngine.getInsuranceFundSummary();
+    // Access liquidation engine through the state manager
+    const liquidationEngine = exchange.stateManager.liquidationEngine;
+    const history = liquidationEngine.getInsuranceFundHistory();
+    const liquidations = liquidationEngine.getLiquidationHistory();
+    const summary = liquidationEngine.getInsuranceFundSummary();
     
     res.json({ 
       history: history,
@@ -110,6 +112,7 @@ app.get('/api/insurance-fund', (req, res) => {
       summary: summary 
     });
   } catch (error) {
+    console.error('Insurance fund API error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -120,7 +123,7 @@ app.post('/api/insurance-fund/adjust', (req, res) => {
     if (typeof amount !== 'number') {
       return res.status(400).json({ error: 'Amount must be a number.' });
     }
-    const result = exchange.liquidationEngine.manualAdjustment(amount, description);
+    const result = exchange.stateManager.liquidationEngine.manualAdjustment(amount, description);
     
     // Broadcast the update to all clients
     const broadcastData = {
