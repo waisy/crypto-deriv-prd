@@ -107,7 +107,39 @@ export class ExchangeStateManager {
 
   public getState(): any {
     return {
-      users: Array.from(this.state.users.values()).map(u => u.toJSON()),
+      users: Array.from(this.state.users.values()).map(u => {
+        const userJSON = u.toJSON();
+        
+        // Calculate margin ratio for users with positions
+        const position = this.state.positions.get(u.id);
+        if (position && position.side && this.marginCalculator) {
+          try {
+            const positionForMargin = {
+              side: position.side as 'long' | 'short',
+              size: position.size,
+              avgEntryPrice: position.avgEntryPrice,
+              leverage: new Decimal(position.leverage),
+              initialMargin: position.initialMargin,
+              unrealizedPnL: position.unrealizedPnL
+            };
+            
+            const marginRatio = this.marginCalculator.calculateMarginRatio(
+              positionForMargin, 
+              u.availableBalance, 
+              this.state.currentMarkPrice
+            );
+            
+            if (marginRatio && !marginRatio.isNaN()) {
+              userJSON.marginRatio = marginRatio.toDP(2).toString();
+            }
+          } catch (error: any) {
+            // Keep 'N/A' if calculation fails
+            this.log('DEBUG', `Failed to calculate margin ratio for user ${u.id}:`, error.message);
+          }
+        }
+        
+        return userJSON;
+      }),
       positions: Array.from(this.state.positions.values()).map(p => p.toJSON(this.state.currentMarkPrice)),
       orderBook: this.orderBook.toJSON(),
       trades: this.state.trades.slice(-20),
