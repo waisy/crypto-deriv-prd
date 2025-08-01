@@ -90,11 +90,16 @@ export class MarginCalculator {
   }
 
   // Calculate margin ratio
-  calculateMarginRatio(position: PositionForMargin, availableBalance: Decimal, currentPrice: Decimal): Decimal | null {
+  calculateMarginRatio(position: PositionForMargin, availableBalance: Decimal, currentPrice: Decimal, usedMargin?: Decimal): Decimal | null {
     const maintenanceMargin = this.calculateMaintenanceMargin(position.size, currentPrice);
-    const equity = availableBalance.plus(position.unrealizedPnL);
+    // Total equity = available balance + used margin + unrealized PnL
+    const totalMargin = usedMargin || new Decimal(0);
+    const equity = availableBalance.plus(totalMargin).plus(position.unrealizedPnL);
     
-    if (maintenanceMargin.isZero()) return null;
+    if (equity.isZero()) return null;
+    
+    // Traditional margin ratio: (Equity ÷ Maintenance Margin) × 100
+    // This shows how many times the equity exceeds the maintenance requirement
     return equity.dividedBy(maintenanceMargin).times(100);
   }
 

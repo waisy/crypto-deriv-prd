@@ -123,7 +123,7 @@ export class MarginMonitor {
     const equity = user.availableBalance.plus(unrealizedPnL);
     
     // Calculate margin ratio
-    const marginRatio = this.marginCalculator.calculateMarginRatio(positionForMargin, user.availableBalance, currentPrice) || new Decimal(0);
+    const marginRatio = this.marginCalculator.calculateMarginRatio(positionForMargin, user.availableBalance, currentPrice, user.usedMargin) || new Decimal(0);
     
     // Calculate distance to liquidation
     const distanceToLiquidation = liquidationPrice.minus(currentPrice).abs().toNumber();

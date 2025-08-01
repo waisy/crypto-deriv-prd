@@ -126,13 +126,12 @@ export class ExchangeStateManager {
             const marginRatio = this.marginCalculator.calculateMarginRatio(
               positionForMargin, 
               u.availableBalance, 
-              this.state.currentMarkPrice
+              this.state.currentMarkPrice,
+              u.usedMargin
             );
             
             if (marginRatio && !marginRatio.isNaN()) {
-              // Cap extremely high margin ratios for UI display (anything above 9999% shows as 9999%+)
-              const cappedRatio = marginRatio.greaterThan(9999) ? new Decimal(9999) : marginRatio;
-              userJSON.marginRatio = cappedRatio.toDP(2).toString();
+              userJSON.marginRatio = marginRatio.toDP(2).toString();
             }
           } catch (error: any) {
             // Keep 'N/A' if calculation fails

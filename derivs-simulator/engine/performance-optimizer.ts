@@ -335,7 +335,7 @@ export class PerformanceOptimizer {
     const liquidationPrice = marginCalculator.calculateLiquidationPrice(positionForMargin);
     const unrealizedPnL = position.unrealizedPnL ? new Decimal(position.unrealizedPnL).toNumber() : 0;
     const equity = user.availableBalance.toNumber() + unrealizedPnL;
-    const marginRatio = marginCalculator.calculateMarginRatio(positionForMargin, user.availableBalance, currentPrice)?.toNumber() || 0;
+    const marginRatio = marginCalculator.calculateMarginRatio(positionForMargin, user.availableBalance, currentPrice, user.usedMargin)?.toNumber() || 0;
     
     const liquidationPriceNum = liquidationPrice.toNumber();
     const distanceToLiquidation = Math.abs(currentPriceNum - liquidationPriceNum);
