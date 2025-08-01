@@ -119,13 +119,14 @@ export class Position {
   get liquidationPrice(): Decimal {
     if (this.size.isZero()) return new Decimal(0);
     
-    // Simplified calculation: entry price +/- (initial margin / size)
-    const marginPerUnit = this.initialMargin.dividedBy(this.size);
+    // Proper liquidation price calculation based on maintenance margin
+    // Liquidation price is where maintenance margin is breached
+    const maintenanceMarginPerUnit = this.maintenanceMargin.dividedBy(this.size);
     
     if (this.side === 'long') {
-      return this.avgEntryPrice.minus(marginPerUnit);
+      return this.avgEntryPrice.minus(maintenanceMarginPerUnit);
     } else {
-      return this.avgEntryPrice.plus(marginPerUnit);
+      return this.avgEntryPrice.plus(maintenanceMarginPerUnit);
     }
   }
   
