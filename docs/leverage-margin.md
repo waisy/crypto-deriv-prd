@@ -12,6 +12,7 @@ Leverage allows traders to control large positions with relatively small capital
 Leverage is the ratio of position size to required margin. It amplifies both potential profits and losses.
 
 ### Leverage Formula
+👁️ Manually Reviewed
 ```
 Leverage = Position Size / Required Margin
 Position Size = Contract Quantity × Current Price
