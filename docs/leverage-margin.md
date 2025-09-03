@@ -1,4 +1,6 @@
-# Leverage and Margin
+# Leverage & Margin
+
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
 
 ## Overview
 

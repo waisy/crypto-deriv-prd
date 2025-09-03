@@ -1,5 +1,7 @@
 # Liquidation Mechanics
 
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
+
 ## Overview
 
 Liquidation is the automatic closure of a trader's position when their margin falls below the maintenance margin requirement. This protects the exchange from losses and ensures market stability.

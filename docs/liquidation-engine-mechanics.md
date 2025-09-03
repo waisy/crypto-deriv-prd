@@ -1,5 +1,7 @@
 # Liquidation Engine Mechanics
 
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
+
 ## Overview
 The liquidation engine is a critical component that maintains the zero-sum invariant (longs = shorts) while managing position liquidations when traders hit maintenance margin requirements.
 

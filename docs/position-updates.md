@@ -1,5 +1,7 @@
 # Position Updates
 
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
+
 ## Overview
 
 Position updates are the real-time mechanism by which traders' positions are modified, PnL is calculated, and risk is managed. Understanding this process is crucial for building a robust derivatives exchange.

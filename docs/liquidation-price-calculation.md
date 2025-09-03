@@ -1,5 +1,7 @@
 # Liquidation Price Calculation
 
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
+
 ## Overview
 
 The liquidation price is the price level at which an open position is automatically closed by the exchange's risk engine. This happens when a trader's margin can no longer cover the potential losses of the position, specifically when the margin balance drops to the level of the required Maintenance Margin.

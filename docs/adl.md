@@ -1,5 +1,7 @@
 # Auto-Deleveraging (ADL)
 
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
+
 ## Overview
 
 Auto-Deleveraging (ADL) is a final risk management mechanism that is activated only when the exchange's Insurance Fund is insufficient to cover the losses from a bankrupt position. It is a process where the exchange automatically closes out profitable opposing positions to cover the shortfall, preventing a system-wide "socialized loss" scenario.

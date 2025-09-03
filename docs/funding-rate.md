@@ -1,5 +1,7 @@
 # Funding Rate Mechanism
 
+> **Status**: 🤖 AI Generated (Unreviewed) | **Last Updated**: 2025-03-09 | **Needs**: External validation, manual review
+
 ## Overview
 
 The funding rate is a periodic payment between long and short positions that keeps the perpetual contract price close to the underlying asset's spot price. This mechanism prevents the perpetual price from deviating too far from the index price.
